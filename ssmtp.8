@@ -22,7 +22,8 @@ placed in dead.letter in the sender's home directory.
 .PP
 Config files allow one to specify the address to receive mail from
 root, daemon, etc.; a default mailhub; a default domain to be used in
-From: lines; and per-user From: addresses and mailhub names.
+From: lines; and per-user From: addresses and mailhub names. Individual
+users may override the global configuration through ~/.ssmtprc.
 .sp
 .PP
 It does not attempt to provide all the functionality of sendmail: it is
@@ -271,6 +272,8 @@ through mail.isp.com.
  /etc/ssmtp/ssmtp.conf - configuration file
 .br
  /etc/ssmtp/revaliases - reverse aliases file
+.br
+ ~/.ssmtprc - individual configuration file
 
 .SH SEE ALSO
 RFC821, RFC822, ssmtp.conf(5).

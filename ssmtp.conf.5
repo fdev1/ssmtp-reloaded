@@ -12,8 +12,11 @@
 .Nd ssmtp configuration file
 .Sh DESCRIPTION
 .Nm ssmtp
-reads configuration data from
-.Pa /etc/ssmtp/ssmtp.conf
+reads configuration data first from
+.Pa ~/.ssmtprc .
+If this file is not found the global configuration is
+read from
+.Pa /etc/ssmtp/ssmtp.conf .
 The file contains keyword-argument pairs, one per line.
 Lines starting with
 .Ql #
@@ -23,7 +26,16 @@ The possible keywords and their meanings are as follows (both are case-insensiti
 .Bl -tag -width Ds
 .It Cm Root
 The user that gets all mail for userids less than 1000. If blank, address rewriting is disabled.
+This keyword is invalid in the individual configuration file 
+.Pa ~/.ssmtprc
 .Pp
+.It Cm EmailAddress
+This keyword is only valid in the individual configuration file
+.Pa ~/.ssmtprc .
+It sets the address placed on the From: field on the user's outgoing
+messages. When this keyword is set the reverse alias file
+.Pa /etc/ssmtp/revaliases
+is ignored.
 .It Cm Mailhub
 The host to send mail to, in the form
 .Ar host No | Ar IP_addr No Oo : Ar port Oc .
@@ -71,6 +83,10 @@ May also be set to
 .Bl -tag -width Ds
 .It Pa /etc/ssmtp/ssmtp.conf
 Contains configuration data for
+.Nm ssmtp .
+.br
+.It Pa ~/.ssmtprc
+Contains individual configuration data for
 .Nm ssmtp .
 .El
 .Sh SEE ALSO

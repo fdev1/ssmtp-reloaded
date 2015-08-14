@@ -870,12 +870,30 @@ read_config() -- Open and parse config file and extract values of variables
 bool_t read_config()
 {
 	char buf[(BUF_SZ + 1)], *p, *q, *r;
+	bool_t user_config = True;
 	FILE *fp;
 
 	if(config_file == (char *)NULL) {
-		config_file = strdup(CONFIGURATION_FILE);
+		char *home_config = getenv("HOME");
+		if (home_config != (char*)NULL) {
+			config_file = malloc(strlen(home_config)+10);
+			if (config_file == (char*)NULL) {
+				die("parse_config() -- malloc() failed");
+			}
+			config_file = strcpy(config_file, home_config);
+			config_file = strcat(config_file, "/.ssmtprc");
+			if (access(config_file, F_OK) == -1) {
+				free(config_file);
+				config_file = NULL;
+			}
+		}
+
 		if(config_file == (char *)NULL) {
-			die("parse_config() -- strdup() failed");
+			user_config = False;
+			config_file = strdup(CONFIGURATION_FILE);
+			if(config_file == (char *)NULL) {
+				die("parse_config() -- strdup() failed");
+			}
 		}
 	}
 
@@ -902,12 +920,25 @@ bool_t read_config()
 		}
 		if(p && q) {
 			if(strcasecmp(p, "Root") == 0) {
-				if((root = strdup(q)) == (char *)NULL) {
+				if (user_config == True) {
+					log_event(LOG_ERR, "Set Root=\"%s\" is invalid in .ssmtprc\n", q);
+				}
+				else {
+					if((root = strdup(q)) == (char *)NULL) {
+						die("parse_config() -- strdup() failed");
+					}
+
+					if(log_level > 0) {
+						log_event(LOG_INFO, "Set Root=\"%s\"\n", root);
+					}
+				}
+			}
+			else if(user_config == True && strcasecmp(p, "EmailAddress") == 0) {
+				if((uad = strdup(q)) == (char *)NULL) {
 					die("parse_config() -- strdup() failed");
 				}
-
 				if(log_level > 0) {
-					log_event(LOG_INFO, "Set Root=\"%s\"\n", root);
+					log_event(LOG_INFO, "Set EmailAddress=\"%s\"\n", uad);
 				}
 			}
 			else if(strcasecmp(p, "MinUserId") == 0) {
@@ -1469,11 +1500,15 @@ int ssmtp(char *argv[])
 			die("ssmtp() -- strdup() failed");
 		}
 	}
-	revaliases(pw);
 
-	/* revaliases() may have defined this */
-	if(uad == (char *)NULL) {
-		uad = append_domain(pw->pw_name);
+	/* this may have been defined on the user's .ssmtprc */
+	if(uad == (char *)NULL){
+		revaliases(pw);
+
+		/* revaliases() may have defined this */
+		if(uad == (char *)NULL) {
+			uad = append_domain(pw->pw_name);
+		}
 	}
 
 	rt = &rcpt_list;
