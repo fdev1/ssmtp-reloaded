@@ -1,0 +1,4 @@
+*.o
+ssmtp
+config.*
+Makefile
