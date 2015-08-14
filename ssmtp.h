@@ -41,5 +41,5 @@ typedef struct string_list rcpt_t;
 void get_arpadate(char *);
 
 /* base64.c */
-void to64frombits(unsigned char *, const unsigned char *, int);
+void to64frombits(char *, const unsigned char *, int);
 int from64tobits(char *, const char *);
