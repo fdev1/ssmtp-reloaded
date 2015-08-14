@@ -62,6 +62,7 @@ bool_t use_oldauth = False;		/* use old AUTH LOGIN username style */
 char arpadate[ARPADATE_LENGTH];
 char *auth_user = (char*)NULL;
 char *auth_pass = (char*)NULL;
+char *auth_askpass = (char*)NULL;
 char *auth_method = (char*)NULL;		/* Mechanism for SMTP authentication */
 char *mail_domain = (char*)NULL;
 char *from = (char*)NULL;		/* Use this as the From: address */
@@ -941,6 +942,14 @@ bool_t read_config()
 					log_event(LOG_INFO, "Set EmailAddress=\"%s\"\n", uad);
 				}
 			}
+			else if(user_config == True && strcasecmp(p, "AuthAskPass") == 0) {
+				if((auth_askpass = strdup(q)) == (char *)NULL) {
+					die("parse_config() -- strdup() failed");
+				}
+				if(log_level > 0) {
+					log_event(LOG_INFO, "Set PasswordProgram=\"%s\"\n", auth_askpass);
+				}
+			}
 			else if(strcasecmp(p, "MinUserId") == 0) {
 				if((r = strdup(q)) == (char *)NULL) {
 					die("parse_config() -- strdup() failed");
@@ -1152,6 +1161,70 @@ bool_t read_config()
 	(void)fclose(fp);
 
 	return(True);
+}
+
+/*
+auth_getpass() -- Request a password from password program
+*/
+char *auth_getpass(void)
+{
+	int fd_pipe[2], pid;
+	if (pipe(fd_pipe) == -1) {
+		die("auth_getpass() -- pipe() failed");
+	}
+	pid = fork();
+	if(pid == -1) {
+		die("auth_getpass() -- fork() failed");
+	}
+	else if(pid == 0) {
+		char *pw_conv;
+		int r;
+		if (dup2(fd_pipe[1], STDOUT_FILENO) == -1) {
+			die("auth_getpass() -- dup2() failed");
+		}
+		close(fd_pipe[0]);
+		if (getuid() != geteuid()) {
+			r = seteuid(getuid());
+		}
+		if(getgid() != getegid()) {
+			r = setegid(getgid());
+		}
+		pw_conv = malloc(strlen(auth_user) + (20 * sizeof(char)));
+		if (pw_conv == (char *)NULL) {
+			die("child: auth_getpass() -- malloc() failed");
+		}
+		if(sprintf(pw_conv, "Password 'ssmtp//%s':", auth_user) < 0) {
+			die("child: auth_getpass() -- sprintf() failed");
+		}
+		execv(auth_askpass, (char * const[]){ auth_askpass, pw_conv, NULL });
+		die("child: auth_getpass() -- execv() failed");
+	}
+	else {
+		int exit_code, bytes_read = 0, buf_len = 0, pw_len = 0, r;
+		char *pw_buf = NULL;
+		close(fd_pipe[1]);
+		wait(&exit_code);
+		if(exit_code) {
+			die("Operation cancelled");
+		}
+		while(1) {
+			buf_len += 16;
+			pw_buf = realloc(pw_buf, (buf_len * sizeof(char))+1);
+			if(pw_buf == (char *)NULL) {
+				die("auth_getpass() -- realloc() failed");
+			}
+			r = read(fd_pipe[0], pw_buf + pw_len, 16);
+			if (r <= 0) {
+				break;
+			}
+			pw_len += r;
+			pw_buf[pw_len] = '\0';
+		}
+		if (r != 0 || !pw_len) {
+			return NULL;
+		}
+		return pw_buf;
+	}
 }
 
 /*
@@ -1554,8 +1627,13 @@ int ssmtp(char *argv[])
 
 	/* Try to log in if username was supplied */
 	if(auth_user) {
-#ifdef MD5AUTH
 		if(auth_pass == (char *)NULL) {
+			if(auth_askpass != (char *)NULL) {
+				auth_pass = auth_getpass();
+			}
+		}
+#ifdef MD5AUTH
+		if (auth_pass == (char *)NULL) {
 			auth_pass = strdup("");
 		}
 

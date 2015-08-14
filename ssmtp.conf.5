@@ -79,6 +79,13 @@ The authorization method to use.
 If unset, plain text is used.
 May also be set to
 .Dq cram-md5 .
+.Pp
+.It Cm AuthAskPass
+The path to an ssh-askpass program used to prompt for password.
+This option is useful to store user passwords in a keyring.
+This keyword is only valid in the individual user configuration
+file
+.Pa ~/.ssmtprc .
 .Sh FILES
 .Bl -tag -width Ds
 .It Pa /etc/ssmtp/ssmtp.conf
