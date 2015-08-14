@@ -16,4 +16,4 @@ This fork includes the following improvements over the original sSMTP:
 * Added support for storing user passwords in a keyring with the
   ssh-askpass program
 * A number of minor bug fixes and alt platform support (mostly borrowed 
-  from Gentoo's sSMTP patchset.
+  from Gentoo's sSMTP patchset)
