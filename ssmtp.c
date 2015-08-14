@@ -13,6 +13,7 @@
 #define VERSION "2.64"
 #define _GNU_SOURCE
 
+#include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <sys/param.h>
@@ -26,11 +27,15 @@
 #include <ctype.h>
 #include <netdb.h>
 #ifdef HAVE_SSL
+#ifdef HAVE_GNUTLS
+#include <gnutls/openssl.h>
+#else
 #include <openssl/crypto.h>
 #include <openssl/x509.h>
 #include <openssl/pem.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#endif
 #endif
 #ifdef MD5AUTH
 #include "md5auth/hmac_md5.h"
@@ -78,6 +83,7 @@ int log_level = 1;
 #else
 int log_level = 0;
 #endif
+int minuserid = MAXSYSUID+1;
 int port = 25;
 #ifdef INET6
 int p_family = PF_UNSPEC;		/* Protocol family used in SMTP connection */
@@ -222,11 +228,10 @@ void die(char *format, ...)
 	exit(1);
 }
 
-#ifndef _GNU_SOURCE
 /*
-basename() -- Return last element of path
+xbasename() -- Return last element of path
 */
-char *basename(char *str)
+char *xbasename(char *str)
 {
 	char *p;
 
@@ -237,7 +242,6 @@ char *basename(char *str)
 
 	return(strdup(p));
 }
-#endif /* _GNU_SOURCE */
 
 /*
 strip_pre_ws() -- Return pointer to first non-whitespace character
@@ -453,7 +457,7 @@ from_format() -- Generate standard From: line
 */
 char *from_format(char *str, bool_t override_from)
 {
-	char buf[(BUF_SZ + 1)];
+	char buf[(BUF_SZ + 1)] = "";
 
 	if(override_from) {
 		if(minus_f) {
@@ -649,7 +653,7 @@ char *rcpt_remap(char *str)
 {
 	struct passwd *pw;
 	if((root==NULL) || strlen(root)==0 || strchr(str, '@') ||
-		((pw = getpwnam(str)) == NULL) || (pw->pw_uid > MAXSYSUID)) {
+		((pw = getpwnam(str)) == NULL) || (pw->pw_uid >= minuserid)) {
 		return(append_domain(str));	/* It's not a local systems-level user */
 	}
 	else {
@@ -844,7 +848,16 @@ char *firsttok(char **s, const char *delim)
 	if (!rest) {
 		return NULL;
 	}
+#ifdef HAVE_STRNDUP
 	tok=strndup(*s,rest-(*s));
+#else
+	{
+		size_t len = rest - (*s);
+		tok = malloc(sizeof(char) * (len + 1));
+		memcpy(tok, *s, len);
+		tok[len] = '\0';
+	}
+#endif
 	if (!tok) {
 		die("firsttok() -- strndup() failed");
 	}
@@ -896,6 +909,17 @@ bool_t read_config()
 
 				if(log_level > 0) {
 					log_event(LOG_INFO, "Set Root=\"%s\"\n", root);
+				}
+			}
+			else if(strcasecmp(p, "MinUserId") == 0) {
+				if((r = strdup(q)) == (char *)NULL) {
+					die("parse_config() -- strdup() failed");
+				}
+
+				minuserid = atoi(r);
+
+				if(log_level > 0) {
+					log_event(LOG_INFO, "Set MinUserId=\"%d\"\n", minuserid);
 				}
 			}
 			else if(strcasecmp(p, "MailHub") == 0) {
@@ -1045,7 +1069,8 @@ bool_t read_config()
 				}
 			}
 			else if(strcasecmp(p, "AuthPass") == 0 && !auth_pass) {
-				if((auth_pass = strdup(q)) == (char *)NULL) {
+				auth_pass = firsttok(&rightside, " \n\t");
+				if(auth_pass  == (char *)NULL) {
 					die("parse_config() -- strdup() failed");
 				}
 
@@ -1133,7 +1158,11 @@ int smtp_open(char *host, int port)
 	}
 
 	if(use_cert == True) { 
+#ifdef HAVE_GNUTLS
+		if(SSL_CTX_use_certificate_file(ctx, tls_cert, SSL_FILETYPE_PEM) <= 0) {
+#else
 		if(SSL_CTX_use_certificate_chain_file(ctx, tls_cert) <= 0) {
+#endif
 			perror("Use certfile");
 			return(-1);
 		}
@@ -1143,10 +1172,12 @@ int smtp_open(char *host, int port)
 			return(-1);
 		}
 
+#ifndef HAVE_GNUTLS
 		if(!SSL_CTX_check_private_key(ctx)) {
 			log_event(LOG_ERR, "Private key does not match the certificate public key\n");
 			return(-1);
 		}
+#endif
 	}
 #endif
 
@@ -1409,6 +1440,7 @@ ssmtp() -- send the message (exactly one) from stdin to the mailhub SMTP port
 int ssmtp(char *argv[])
 {
 	char b[(BUF_SZ + 2)], *buf = b+1, *p, *q;
+	char *remote_addr;
 #ifdef MD5AUTH
 	char challenge[(BUF_SZ + 1)];
 #endif
@@ -1610,6 +1642,10 @@ int ssmtp(char *argv[])
 
 	if(have_from == False) {
 		outbytes += smtp_write(sock, "From: %s", from);
+	}
+
+	if(remote_addr=getenv("REMOTE_ADDR")) {
+		outbytes += smtp_write(sock, "X-Originating-IP: %s", remote_addr);
 	}
 
 	if(have_date == False) {
@@ -2066,7 +2102,7 @@ int main(int argc, char **argv)
 	(void)signal(SIGTTOU, SIG_IGN);
 
 	/* Set the globals */
-	prog = basename(argv[0]);
+	prog = xbasename(argv[0]);
 
 	hostname = xgethostname();
 
