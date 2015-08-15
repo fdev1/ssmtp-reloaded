@@ -86,6 +86,11 @@ This option is useful to store user passwords in a keyring.
 This keyword is only valid in the individual user configuration
 file
 .Pa ~/.ssmtprc .
+.Pp
+.It Cm QueueDir
+The path to save failed email for later transmission by ssmtp-agent.
+If this option is not specified ssmtp will write failed messages to
+.Pa ~/dead.letter .
 .Sh FILES
 .Bl -tag -width Ds
 .It Pa /etc/ssmtp/ssmtp.conf

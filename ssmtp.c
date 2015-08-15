@@ -76,6 +76,7 @@ char *root = NULL;
 char *tls_cert = "/etc/ssl/certs/ssmtp.pem";	/* Default Certificate */
 char *uad = (char*)NULL;
 char *config_file = (char*)NULL;		/* alternate configuration file */
+char *queue_dir = (char*)NULL;
 
 headers_t headers, *ht;
 
@@ -93,6 +94,7 @@ int p_family = PF_UNSPEC;		/* Protocol family used in SMTP connection */
 jmp_buf TimeoutJmpBuf;			/* Timeout waiting for input from network */
 
 rcpt_t rcpt_list, *rt;
+char **rcptv = (char**) NULL;
 
 #ifdef HAVE_SSL
 SSL *ssl;
@@ -103,6 +105,9 @@ static char hextab[]="0123456789abcdef";
 #endif
 
 ssize_t outbytes;
+
+char *addr_parse(char *str);
+char *rcpt_remap(char *str);
 
 /*
 log_event() -- Write event to syslog (or log file if defined)
@@ -208,8 +213,146 @@ void dead_letter(void)
 	free(path);
 }
 
+bool_t queue_mail_save(const char *rcpt, const char *msg)
+{
+	char *template;
+	int fd;
+
+	template = malloc(strlen(queue_dir) + strlen(rcpt) + 9);
+	if(template == (char *)NULL) {
+		return False;
+	}
+
+	sprintf(template, "%s/%s-XXXXXX", queue_dir, rcpt);
+
+	fd = mkstemp(template);
+	if(fd < 0) {
+		fprintf(stderr, "%s: mkstemp(\"%s\") failed\n", prog, template);
+		return False;
+	}
+
+	if(write(fd, msg, strlen(msg)) == -1) {
+		if(log_level > 0) {
+			log_event(LOG_ERR, "Could not queue message. write() failed");
+		}
+		close(fd);
+		return False;
+	}
+	close(fd);
+	return True;
+}
+
+#define QUEUE_FAILED 	0
+#define QUEUE_PARTIAL 	1
+#define QUEUE_SUCCESS	2
+
+int queue_mail(void)
+{
+	#define QUEUE_READSZ 255
+	int fd, buf_len = 0, msg_len = 0, r;
+	char *msg_buf = NULL, *p, *q;
+	bool_t failed = False, queued = False;
+
+	if(minus_t && rcpt_list.next == (rcpt_t *)NULL) {
+		return QUEUE_FAILED;
+	}
+	else if(minus_t == False && rcptv[1] == NULL) {
+		return QUEUE_FAILED;
+	}
+
+	ht = &headers;
+	while(ht->next) {
+		r = strlen(ht->string);
+		buf_len += r + 1;
+		msg_buf = realloc(msg_buf, buf_len + 2);
+		if(msg_buf == (char *)NULL) {
+			if(log_level > 0) {
+				log_event(LOG_ERR, "Cannot queue message: out of memory");
+			}
+			return QUEUE_FAILED;
+		}
+		r = sprintf(msg_buf + msg_len, "%s\n", ht->string);
+		if (r < 0) {
+			return QUEUE_FAILED;
+		}
+		msg_len += r;
+		msg_buf[msg_len] = '\0';
+		ht = ht->next;
+	}
+
+	while (1) {
+		char *s;
+		buf_len += QUEUE_READSZ;
+		msg_buf = realloc(msg_buf, buf_len + 1);
+		if(msg_buf == (char *)NULL) {
+			if(log_level > 0) {
+				log_event(LOG_ERR, "Cannot queue message: out of memory");
+			}
+			return QUEUE_FAILED;
+		}
+		if((s = fgets(msg_buf + msg_len, QUEUE_READSZ, stdin)) == NULL) {
+			r = 0;
+			break;
+		}
+		r = strlen(s);
+		msg_len += r;
+		msg_buf[msg_len] = '\0';
+	}
+	if (r || !msg_len) {
+		return QUEUE_FAILED;
+	}
+
+	if (minus_t) {
+		if (rcpt_list.next == NULL) {
+			return QUEUE_FAILED;
+		}
+		rt = &rcpt_list;
+		while(rt->next) {
+			q = rcpt_remap(rt->string);
+			if(queue_mail_save(q, msg_buf) == False) {
+				if(log_level > 0) {
+					log_event(LOG_ERR, "Could not queue message for %s", q);
+				}
+				failed = True;
+			}
+			else {
+				queued = True;
+			}
+			rt = rt->next;
+		}
+	}
+	else {
+		int i;
+		for (i = 1; rcptv[i] != NULL; i++) {
+			p = strtok(rcptv[i], ",");
+			while(p) {
+				q = rcpt_remap(addr_parse(p));
+				if(queue_mail_save(q, msg_buf) == False) {
+					if(log_level > 0) {
+						log_event(LOG_ERR, "Could not queue message for %s", q);
+					}
+					failed = True;
+				}
+				else {
+					queued = True;
+				}
+				p = strtok(NULL, ",");
+			}
+		}
+	}
+	if(failed && queued) {
+		return QUEUE_PARTIAL;
+	}
+	else if(failed) {
+		return QUEUE_FAILED;
+	}
+	else {
+		return QUEUE_SUCCESS;
+	}
+}
+
 /*
-die() -- Write error message, dead.letter and exit
+die() -- Write error message, dead.letter or queue and exit
 */
 void die(char *format, ...)
 {
@@ -223,8 +366,25 @@ void die(char *format, ...)
 	(void)fprintf(stderr, "%s: %s\n", prog, buf);
 	log_event(LOG_ERR, "%s", buf);
 
-	/* Send message to dead.letter */
-	(void)dead_letter();
+	if(queue_dir != (char *)NULL) {
+		/* Enqueue message for sending later */
+		switch(queue_mail()) {
+			case QUEUE_FAILED:
+				fprintf(stderr, "%s: Could not queue message(s)\n", prog);
+				break;
+			case QUEUE_PARTIAL:
+				fprintf(stderr, "%s: Partially queued message(s)\n", prog);
+				break;
+			case QUEUE_SUCCESS:
+				fprintf(stderr, "%s: Message(s) queued\n", prog);
+				exit(0); /* right? */
+				break;
+		}
+	}
+	else {
+		/* Send message to dead.letter */
+		(void)dead_letter();
+	}
 
 	exit(1);
 }
@@ -950,6 +1110,29 @@ bool_t read_config()
 					log_event(LOG_INFO, "Set PasswordProgram=\"%s\"\n", auth_askpass);
 				}
 			}
+			else if(strcasecmp(p, "QueueDir") == 0) {
+				if(q[0] == '~') {
+					struct passwd *pw;
+					pw = getpwuid(getuid());
+					if(!pw) {
+						die("parse_config() -- getpwuid() failed");
+					}
+					queue_dir = malloc(strlen(pw->pw_dir) + strlen(q));
+					if(queue_dir == (char *)NULL) {
+						die("parse_config() -- malloc() failed");
+					}
+					strcpy(queue_dir, pw->pw_dir);
+					strcat(queue_dir, q+1);
+				}
+				else {
+					if((queue_dir = strdup(q)) == (char *)NULL) {
+						die("parse_config() -- strdup() failed");
+					}
+				}
+				if(log_level > 0) {
+					log_event(LOG_INFO, "Set QueueDir=\"%s\"\n", queue_dir);
+				}
+			}
 			else if(strcasecmp(p, "MinUserId") == 0) {
 				if((r = strdup(q)) == (char *)NULL) {
 					die("parse_config() -- strdup() failed");
@@ -1557,6 +1740,9 @@ int ssmtp(char *argv[])
 	b[0] = '.';
 	outbytes = 0;
 	ht = &headers;
+
+	/* save recipient list, we'll need it for queueing */
+	rcptv = argv;
 
 	uid = getuid();
 	if((pw = getpwuid(uid)) == (struct passwd *)NULL) {
