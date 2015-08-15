@@ -43,6 +43,7 @@
 #include "ssmtp.h"
 #include <fcntl.h>
 #include "xgethostname.h"
+#include <dirent.h>
 
 bool_t have_date = False;
 bool_t have_from = False;
@@ -213,6 +214,9 @@ void dead_letter(void)
 	free(path);
 }
 
+/*
+queue_mmail_save()
+*/
 bool_t queue_mail_save(const char *rcpt, const char *msg)
 {
 	char *template;
@@ -253,11 +257,91 @@ int queue_mail(void)
 	char *msg_buf = NULL, *p, *q;
 	bool_t failed = False, queued = False;
 
-	if(minus_t && rcpt_list.next == (rcpt_t *)NULL) {
-		return QUEUE_FAILED;
+	if(minus_t) {
+		if(rcpt_list.next) {
+			rt = &rcpt_list;			
+			q = rcpt_remap(rt->string);
+			r = strlen(q);
+			buf_len += r + 5;
+			msg_buf = realloc(msg_buf, buf_len + 2);
+			if(msg_buf == NULL) {
+				return QUEUE_FAILED;
+			}
+			r = sprintf(msg_buf + msg_len, "RCPT:%s", q);
+			if(r < 0) {
+				return QUEUE_FAILED;
+			}
+			msg_len += r;
+			msg_buf[msg_len] = '\0';
+			rt = rt->next;
+
+			while(rt->next) {
+				q = rcpt_remap(rt->string);
+				r = strlen(q);
+				buf_len += r + 1;
+				msg_buf = realloc(msg_buf, buf_len + 2);
+				if(msg_buf == NULL) {
+					return QUEUE_FAILED;
+				}
+				
+				r = sprintf(msg_buf + msg_len, ",%s", q);
+				if(r < 0) {
+					return QUEUE_FAILED;
+				}
+				msg_len += r;
+				msg_buf[msg_len] = '\0';
+				rt = rt->next;
+			}
+			msg_buf[msg_len] = '\n';
+			msg_buf[++msg_len] = '\0';
+		}
+		else {
+			return QUEUE_FAILED;
+		}
 	}
-	else if(minus_t == False && rcptv[1] == NULL) {
-		return QUEUE_FAILED;
+	else {
+		int i;
+		if(rcptv[1] != NULL) {
+			for (i = 1; rcptv[i] != NULL; i++) {
+				p = strtok(rcptv[i], ",");
+				q = rcpt_remap(addr_parse(p));
+				r = strlen(p);
+				buf_len += r + 5;
+				msg_buf = realloc(msg_buf, buf_len + 2);
+				if(msg_buf == NULL) {
+					return QUEUE_FAILED;
+				}
+				r = sprintf(msg_buf + msg_len, "RCPT:%s", q);
+				if(r < 0) {
+					return QUEUE_FAILED;
+				}
+				msg_len += r;
+				msg_buf[msg_len] = '\0';
+				p = strtok(NULL, ",");
+
+				while(p) {
+					q = rcpt_remap(addr_parse(p));
+					r = strlen(p);
+					buf_len += r + 1;
+					msg_buf = realloc(msg_buf, buf_len + 2);
+					if(msg_buf == NULL) {
+						return QUEUE_FAILED;
+					}
+					r = sprintf(msg_buf + msg_len, ",%s", q);
+					if(r < 0) {
+						return QUEUE_FAILED;
+					}
+					msg_len += r;
+					msg_buf[msg_len] = '\0';
+					p = strtok(NULL, ",");
+				}
+				msg_buf[msg_len] = '\n';
+				msg_buf[++msg_len] = '\0';
+			}
+		}
+		else {
+			return QUEUE_FAILED;
+		}
 	}
 
 	ht = &headers;
@@ -302,52 +386,11 @@ int queue_mail(void)
 		return QUEUE_FAILED;
 	}
 
-	if (minus_t) {
-		if (rcpt_list.next == NULL) {
-			return QUEUE_FAILED;
-		}
-		rt = &rcpt_list;
-		while(rt->next) {
-			q = rcpt_remap(rt->string);
-			if(queue_mail_save(q, msg_buf) == False) {
-				if(log_level > 0) {
-					log_event(LOG_ERR, "Could not queue message for %s", q);
-				}
-				failed = True;
-			}
-			else {
-				queued = True;
-			}
-			rt = rt->next;
-		}
-	}
-	else {
-		int i;
-		for (i = 1; rcptv[i] != NULL; i++) {
-			p = strtok(rcptv[i], ",");
-			while(p) {
-				q = rcpt_remap(addr_parse(p));
-				if(queue_mail_save(q, msg_buf) == False) {
-					if(log_level > 0) {
-						log_event(LOG_ERR, "Could not queue message for %s", q);
-					}
-					failed = True;
-				}
-				else {
-					queued = True;
-				}
-				p = strtok(NULL, ",");
-			}
-		}
-	}
-	if(failed && queued) {
-		return QUEUE_PARTIAL;
-	}
-	else if(failed) {
-		return QUEUE_FAILED;
-	}
-	else {
+	if(queue_mail_save("mail", msg_buf) == True) {
 		return QUEUE_SUCCESS;
+	}
+	else {
+		return QUEUE_FAILED;
 	}
 }
 
@@ -2040,6 +2083,115 @@ void paq(char *format, ...)
 	exit(0);
 }
 
+void queue_process(int interval, bool_t dofork)
+{
+	int pid, fd_pipe[2], r;
+	bool_t found_some = False;
+
+	if(read_config() == False) {
+		die("Could not read '%s'", config_file);
+	}
+
+	if(queue_dir == (char *)NULL) {
+		fprintf(stderr, "is not!\n");
+		paq("%s: Mail queue is empty\n", prog);
+	}
+
+	while (1)
+	{
+		#define BUFSZ 256
+		DIR *qdir;
+		struct dirent *dp;
+		FILE *f;
+		char *to, *fpath, buf[BUFSZ];
+
+		qdir = opendir(queue_dir);
+		if(qdir == NULL) {
+			paq("%s: Mail queue is empty\n", prog);
+			/* die("queue_process() -- opendir() failed"); */
+		}
+
+		while((dp = readdir(qdir)) != NULL) {
+			if(!strcmp(dp->d_name, ".") || !strcmp(dp->d_name, "..")) {
+				continue;
+			}
+			found_some = True;
+			fpath = malloc(strlen(queue_dir) + strlen(dp->d_name) + (2*sizeof(char)));
+			if(!fpath) {
+				fprintf(stderr, "malloc() failed");
+				continue;
+			}
+			sprintf(fpath, "%s/%s", queue_dir, dp->d_name);
+			f = fopen(fpath, "r");
+			if(!f) {
+				fprintf(stderr, "Cannot open: %s\n", fpath);
+				continue;
+			}
+
+			/*
+			 * TODO: don't use getline()
+			 */
+			to = NULL;
+			if((r=getline(&to, (size_t*)&r, f)) <= 5) {
+				fprintf(stderr, "getline() failed! %i\n", r);
+				continue;
+			}
+
+			/* remove newline */
+			to[strlen(to)-1] = '\0';
+
+			if(pipe(fd_pipe) == -1) {
+				fprintf(stderr, "pipe() failed\n");
+				continue;
+			}
+
+			pid = fork();
+			
+			if(pid == -1) {
+				if(log_level > 0) {
+					log_event(LOG_ERR, "Could not send mail: fork() failed");
+				}
+				fprintf(stderr, "fork() failed\n");
+			}
+			else if(pid != 0) {
+				close(fd_pipe[0]);
+				while(!feof(f)) {
+					r = fread(buf, sizeof(char), BUFSZ, f);
+					if(r > 0) {
+						if(write(fd_pipe[1], buf, r) == -1) {
+							break;
+						}
+					}
+				}
+				close(fd_pipe[1]);
+				fclose(f);
+				remove(fpath);
+				wait(&r);
+			}
+			else {
+				close(fd_pipe[1]);
+				if(dup2(fd_pipe[0], STDIN_FILENO) == -1) {
+					die("queue_process() -- dup2() failed");
+				}
+				/* rewrite args */
+				exit(ssmtp((char*[]){ strdup(prog), to + 5, NULL }));
+			}
+		}
+
+		closedir(qdir);
+
+		if(!interval) {
+			break;
+		}
+		sleep(interval);
+	}
+
+	if(!found_some) {
+		paq("%s: Mail queue is empty\n", prog);
+	}
+	exit(0);
+}
+
 /*
 parse_options() -- Pull the options out of the command-line
 	Process them (special-case calls to mailq, etc) and return the rest
@@ -2351,7 +2503,13 @@ char **parse_options(int argc, char *argv[])
 
 			/* Process the queue [at time] */
 			case 'q':
-					paq("%s: Mail queue is empty\n", prog);
+				//if(queue_dir == (char *)NULL) {
+				//	paq("%s: Mail queue is empty\n", prog);
+				//}
+				//else {
+					queue_process(0, False);
+				//}
+				break;
 
 			/* Read message's To/Cc/Bcc lines */
 			case 't':
