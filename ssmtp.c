@@ -44,6 +44,9 @@
 #include <fcntl.h>
 #include "xgethostname.h"
 #include <dirent.h>
+#include <langinfo.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
 
 bool_t have_date = False;
 bool_t have_from = False;
@@ -109,6 +112,7 @@ ssize_t outbytes;
 
 char *addr_parse(char *str);
 char *rcpt_remap(char *str);
+int main(int argc, char **argv);
 
 /*
 log_event() -- Write event to syslog (or log file if defined)
@@ -215,189 +219,115 @@ void dead_letter(void)
 }
 
 /*
-queue_mmail_save()
+queue_message() -- save message to queue directory
 */
-bool_t queue_mail_save(const char *rcpt, const char *msg)
+bool_t queue_message(void)
 {
-	char *template;
-	int fd;
-
-	template = malloc(strlen(queue_dir) + strlen(rcpt) + 9);
-	if(template == (char *)NULL) {
-		return False;
-	}
-
-	sprintf(template, "%s/%s-XXXXXX", queue_dir, rcpt);
-
-	fd = mkstemp(template);
-	if(fd < 0) {
-		fprintf(stderr, "%s: mkstemp(\"%s\") failed\n", prog, template);
-		return False;
-	}
-
-	if(write(fd, msg, strlen(msg)) == -1) {
+	int fd, i;
+	const char *delim = "sSMTP:";
+	char *p, *q, *template, buf[64];
+	if(isatty(fileno(stdin))) {
 		if(log_level > 0) {
-			log_event(LOG_ERR, "Could not queue message. write() failed");
+			log_event(LOG_ERR, "Message not queued: STDIN is a TTY");
 		}
-		close(fd);
+		fprintf(stderr, "%s: Message not queued: STDIN is a TTY\n", prog);
 		return False;
 	}
-	close(fd);
-	return True;
-}
-
-#define QUEUE_FAILED 	0
-#define QUEUE_PARTIAL 	1
-#define QUEUE_SUCCESS	2
-
-int queue_mail(void)
-{
-	#define QUEUE_READSZ 255
-	int fd, buf_len = 0, msg_len = 0, r;
-	char *msg_buf = NULL, *p, *q;
-	bool_t failed = False, queued = False;
-
+	template = malloc(strlen(queue_dir) + (13 * sizeof(char)));
+	if(!template) {
+		if(log_level > 0) {
+			log_event(LOG_ERR, "Could not queue message: out of memory");
+		}
+		fprintf(stderr, "%s: Could not queue message: out of memory", prog);
+		return False;
+	}
+	strcpy(template, queue_dir);
+	strcat(template, "/mail-XXXXXX");
+	if((fd = mkstemp(template)) == -1) {
+		if(log_level > 0) {
+			log_event(LOG_ERR, "Could not queue message: mkstemp(\"%s\") failed", template);
+		}
+		fprintf(stderr, "%s: Could not queue message: mkstemp() failed", prog);
+		free(template);
+		return False;
+	}
 	if(minus_t) {
-		if(rcpt_list.next) {
-			rt = &rcpt_list;			
+		#if 1
+		if(write(fd, delim, strlen(delim)) == -1 ||
+			write(fd, "-t", 2) == -1) {
+			goto write_failed;
+		}
+		#else
+		rt = &rcpt_list;			
+		while(rt->next) {
 			q = rcpt_remap(rt->string);
-			r = strlen(q);
-			buf_len += r + 5;
-			msg_buf = realloc(msg_buf, buf_len + 2);
-			if(msg_buf == NULL) {
-				return QUEUE_FAILED;
+			if(write(fd, delim, strlen(delim)) == -1 ||
+				write(fd, q, strlen(q)) == -1) {
+				goto write_failed;
 			}
-			r = sprintf(msg_buf + msg_len, "RCPT:%s", q);
-			if(r < 0) {
-				return QUEUE_FAILED;
-			}
-			msg_len += r;
-			msg_buf[msg_len] = '\0';
+			delim = ",";
 			rt = rt->next;
-
-			while(rt->next) {
-				q = rcpt_remap(rt->string);
-				r = strlen(q);
-				buf_len += r + 1;
-				msg_buf = realloc(msg_buf, buf_len + 2);
-				if(msg_buf == NULL) {
-					return QUEUE_FAILED;
-				}
-				
-				r = sprintf(msg_buf + msg_len, ",%s", q);
-				if(r < 0) {
-					return QUEUE_FAILED;
-				}
-				msg_len += r;
-				msg_buf[msg_len] = '\0';
-				rt = rt->next;
-			}
-			msg_buf[msg_len] = '\n';
-			msg_buf[++msg_len] = '\0';
 		}
-		else {
-			return QUEUE_FAILED;
-		}
+		#endif
 	}
 	else {
-		int i;
-		if(rcptv[1] != NULL) {
-			for (i = 1; rcptv[i] != NULL; i++) {
-				p = strtok(rcptv[i], ",");
+		for (i = 1; rcptv[i] != NULL; i++) {
+			p = strtok(rcptv[i], ",");
+			while(p) {
 				q = rcpt_remap(addr_parse(p));
-				r = strlen(p);
-				buf_len += r + 5;
-				msg_buf = realloc(msg_buf, buf_len + 2);
-				if(msg_buf == NULL) {
-					return QUEUE_FAILED;
+				if(write(fd, delim, strlen(delim)) == -1 ||
+					write(fd, q, strlen(q)) == -1) {
+					goto write_failed;
 				}
-				r = sprintf(msg_buf + msg_len, "RCPT:%s", q);
-				if(r < 0) {
-					return QUEUE_FAILED;
-				}
-				msg_len += r;
-				msg_buf[msg_len] = '\0';
+				delim = ",";
 				p = strtok(NULL, ",");
-
-				while(p) {
-					q = rcpt_remap(addr_parse(p));
-					r = strlen(p);
-					buf_len += r + 1;
-					msg_buf = realloc(msg_buf, buf_len + 2);
-					if(msg_buf == NULL) {
-						return QUEUE_FAILED;
-					}
-					r = sprintf(msg_buf + msg_len, ",%s", q);
-					if(r < 0) {
-						return QUEUE_FAILED;
-					}
-					msg_len += r;
-					msg_buf[msg_len] = '\0';
-					p = strtok(NULL, ",");
-				}
-				msg_buf[msg_len] = '\n';
-				msg_buf[++msg_len] = '\0';
 			}
 		}
-		else {
-			return QUEUE_FAILED;
+	}
+	#if 0
+	if(have_from) {
+		if(write(fd, "\n", sizeof(char)) == -1 ||
+			write(fd, "From: ", 6) == -1 ||
+			write(fd, from, strlen(from)) == -1) {
+			goto write_failed;
 		}
 	}
-
+	#endif
 	ht = &headers;
 	while(ht->next) {
-		r = strlen(ht->string);
-		buf_len += r + 1;
-		msg_buf = realloc(msg_buf, buf_len + 2);
-		if(msg_buf == (char *)NULL) {
-			if(log_level > 0) {
-				log_event(LOG_ERR, "Cannot queue message: out of memory");
-			}
-			return QUEUE_FAILED;
+		if(write(fd, "\n", sizeof(char)) == -1 ||
+			write(fd, ht->string, strlen(ht->string)) == -1) {
+			goto write_failed;
 		}
-		r = sprintf(msg_buf + msg_len, "%s\n", ht->string);
-		if (r < 0) {
-			return QUEUE_FAILED;
-		}
-		msg_len += r;
-		msg_buf[msg_len] = '\0';
 		ht = ht->next;
 	}
-
-	while (1) {
-		char *s;
-		buf_len += QUEUE_READSZ;
-		msg_buf = realloc(msg_buf, buf_len + 1);
-		if(msg_buf == (char *)NULL) {
-			if(log_level > 0) {
-				log_event(LOG_ERR, "Cannot queue message: out of memory");
-			}
-			return QUEUE_FAILED;
+	if(write(fd, "\n", sizeof(char)) == -1) {
+		goto write_failed;
+	}
+	while (fgets(buf, 64, stdin) != NULL) {
+		if(write(fd, buf, strlen(buf)) == -1) {
+			goto write_failed;
 		}
-		if((s = fgets(msg_buf + msg_len, QUEUE_READSZ, stdin)) == NULL) {
-			r = 0;
-			break;
-		}
-		r = strlen(s);
-		msg_len += r;
-		msg_buf[msg_len] = '\0';
 	}
-	if (r || !msg_len) {
-		return QUEUE_FAILED;
-	}
+	close(fd);
+	free(template);
+	return True;
 
-	if(queue_mail_save("mail", msg_buf) == True) {
-		return QUEUE_SUCCESS;
+write_failed:
+	if(log_level > 0) {
+		log_event(LOG_ERR, "Could not queue message: write() failed");
 	}
-	else {
-		return QUEUE_FAILED;
-	}
+	fprintf(stderr, "%s: Could not queue message: write() failed", prog);
+	close(fd);
+	remove(template);
+	free(template);
+	return False;
 }
 
 /*
 die() -- Write error message, dead.letter or queue and exit
 */
-void die(char *format, ...)
+void __attribute__((noreturn)) die(char *format, ...)
 {
 	char buf[(BUF_SZ + 1)];
 	va_list ap;
@@ -411,24 +341,18 @@ void die(char *format, ...)
 
 	if(queue_dir != (char *)NULL) {
 		/* Enqueue message for sending later */
-		switch(queue_mail()) {
-			case QUEUE_FAILED:
-				fprintf(stderr, "%s: Could not queue message(s)\n", prog);
-				break;
-			case QUEUE_PARTIAL:
-				fprintf(stderr, "%s: Partially queued message(s)\n", prog);
-				break;
-			case QUEUE_SUCCESS:
-				fprintf(stderr, "%s: Message(s) queued\n", prog);
-				exit(0); /* right? */
-				break;
+		if(queue_message()) {
+			fprintf(stderr, "%s: Message queued\n", prog);
+			exit(0);
+		}
+		else {
+			fprintf(stderr, "%s: Could not queue message\n", prog);
 		}
 	}
 	else {
 		/* Send message to dead.letter */
 		(void)dead_letter();
 	}
-
 	exit(1);
 }
 
@@ -813,6 +737,8 @@ void rcpt_parse(char *str)
 int crammd5(char *challengeb64, char *username, char *password, char *responseb64)
 {
 	int i;
+	/* none of these should be unsigned!
+	 * TODO: audit md5auth code */
 	unsigned char digest[MD5_DIGEST_LEN];
 	unsigned char digascii[MD5_DIGEST_LEN * 2];
 	unsigned char challenge[(BUF_SZ + 1)];
@@ -821,12 +747,12 @@ int crammd5(char *challengeb64, char *username, char *password, char *responseb6
 
 	memset (secret,0,sizeof(secret));
 	memset (challenge,0,sizeof(challenge));
-	strncpy (secret, password, sizeof(secret));	
+	strncpy ((char*)secret, password, sizeof(secret));	
 	if (!challengeb64 || strlen(challengeb64) > sizeof(challenge) * 3 / 4)
 		return 0;
-	from64tobits(challenge, challengeb64);
+	from64tobits((char*)challenge, challengeb64);
 
-	hmac_md5(challenge, strlen(challenge), secret, strlen(secret), digest);
+	hmac_md5(challenge, strlen((char*)challenge), secret, strlen((char*)secret), digest);
 
 	for (i = 0; i < MD5_DIGEST_LEN; i++) {
 		digascii[2 * i] = hextab[digest[i] >> 4];
@@ -837,10 +763,10 @@ int crammd5(char *challengeb64, char *username, char *password, char *responseb6
 	if (sizeof(response) <= strlen(username) + sizeof(digascii))
 		return 0;
 	
-	strncpy (response, username, sizeof(response) - sizeof(digascii) - 2);
-	strcat (response, " ");
-	strcat (response, digascii);
-	to64frombits(responseb64, response, strlen(response));
+	strncpy ((char*)response, username, sizeof(response) - sizeof(digascii) - 2);
+	strcat ((char*)response, " ");
+	strcat ((char*)response, (char*)digascii);
+	to64frombits(responseb64, (unsigned char*)response, strlen((char*)response));
 
 	return 1;
 }
@@ -1097,6 +1023,16 @@ bool_t read_config()
 			config_file = strdup(CONFIGURATION_FILE);
 			if(config_file == (char *)NULL) {
 				die("parse_config() -- strdup() failed");
+			}
+		}
+	}
+
+	if(user_config) {
+		/* we don't need suid/guid when
+		 * running as a regular user */
+		if(setegid(getgid()) == -1 || seteuid(getuid()) == -1) {
+			if(log_level > 0) {
+				log_event(LOG_ERR, "Failed to set gid/uid");
 			}
 		}
 	}
@@ -1424,9 +1360,12 @@ char *auth_getpass(void)
 		}
 		execv(auth_askpass, (char * const[]){ auth_askpass, pw_conv, NULL });
 		die("child: auth_getpass() -- execv() failed");
+		if(r) {
+			exit(0);
+		}
 	}
 	else {
-		int exit_code, bytes_read = 0, buf_len = 0, pw_len = 0, r;
+		int exit_code, buf_len = 0, pw_len = 0, r;
 		char *pw_buf = NULL;
 		close(fd_pipe[1]);
 		wait(&exit_code);
@@ -2083,32 +2022,58 @@ void paq(char *format, ...)
 	exit(0);
 }
 
-void queue_process(int interval, bool_t dofork)
+/*
+queue_process() -- Process queued messages
+*/
+void queue_process(unsigned long interval, 
+	bool_t dofork, bool_t list_only)
 {
 	int pid, fd_pipe[2], r;
+	unsigned long inttmp;
 	bool_t found_some = False;
+
+	if(dofork) {
+		pid = fork();
+		if(pid == -1) {
+			fprintf(stderr, "%s: Could not daemonize: fork() failed\n", prog);
+			exit(1);
+		}
+		else if(pid != 0) {
+			exit(0);
+		}
+
+		/* I'm not exactly sure what the purpose of
+		 * "becoming bulletproof" is in main() but
+		 * definitely not something we want when running
+		 * as a daemon
+		 */
+		signal(SIGHUP, SIG_DFL);
+		signal(SIGINT, SIG_DFL);
+		config_file = NULL; /* why? */
+	}
 
 	if(read_config() == False) {
 		die("Could not read '%s'", config_file);
 	}
-
 	if(queue_dir == (char *)NULL) {
-		fprintf(stderr, "is not!\n");
 		paq("%s: Mail queue is empty\n", prog);
+	}
+	if(list_only) {
+		printf("-Queue ID-\t-Size-\t\t----Arrival Time---\t\t-Recipient-\n");
 	}
 
 	while (1)
 	{
-		#define BUFSZ 256
+		#define BUFSZ 64
 		DIR *qdir;
 		struct dirent *dp;
 		FILE *f;
 		char *to, *fpath, buf[BUFSZ];
+		size_t s;
 
 		qdir = opendir(queue_dir);
 		if(qdir == NULL) {
 			paq("%s: Mail queue is empty\n", prog);
-			/* die("queue_process() -- opendir() failed"); */
 		}
 
 		while((dp = readdir(qdir)) != NULL) {
@@ -2118,13 +2083,21 @@ void queue_process(int interval, bool_t dofork)
 			found_some = True;
 			fpath = malloc(strlen(queue_dir) + strlen(dp->d_name) + (2*sizeof(char)));
 			if(!fpath) {
-				fprintf(stderr, "malloc() failed");
+				fprintf(stderr, "%s: Could not process '%s':  out of memory", 
+					prog, dp->d_name);
 				continue;
 			}
 			sprintf(fpath, "%s/%s", queue_dir, dp->d_name);
 			f = fopen(fpath, "r");
 			if(!f) {
-				fprintf(stderr, "Cannot open: %s\n", fpath);
+				fprintf(stderr, "%s: Cannot open: '%s'. Skipping\n", prog, fpath);
+				free(fpath);
+				continue;
+			}
+			if(fgets(buf, 7, f) != buf) {
+				continue;
+			}
+			if(strcmp(buf, "sSMTP:") != 0) {
 				continue;
 			}
 
@@ -2132,16 +2105,70 @@ void queue_process(int interval, bool_t dofork)
 			 * TODO: don't use getline()
 			 */
 			to = NULL;
-			if((r=getline(&to, (size_t*)&r, f)) <= 5) {
+			if((r=getline(&to, &s, f)) <= 0) {
 				fprintf(stderr, "getline() failed! %i\n", r);
+				fclose(f);
+				free(fpath);
 				continue;
 			}
-
 			/* remove newline */
 			to[strlen(to)-1] = '\0';
 
+			if(list_only) {
+				struct stat stats;
+				struct tm *tm;
+				char sdate[40] = "                   \t";
+				const char *delim = "";
+				r = 0;
+				/* this is not the proper solution!!!!!!! */
+				memset(&headers, 0, sizeof(headers));
+				memset(&rcpt_list, 0, sizeof(rcpt_list));
+				ht = &headers;
+				rt = &rcpt_list;
+				minus_t = True;
+				header_parse(f);				
+
+				if(!stat(fpath, &stats)) {
+					r = (int) stats.st_size;
+					tm = localtime(&stats.st_mtime);
+					strftime(sdate, sizeof(sdate), nl_langinfo(D_T_FMT), tm);
+				}
+
+				printf("%s\t\t%i\t\t%s\t", 
+					&dp->d_name[strlen(dp->d_name)-6],
+					r,
+					sdate);
+				if(!strcmp(to, "-t")) {
+					rt = &rcpt_list;
+					while(rt->next) {
+						char *q;
+						q = rcpt_remap(rt->string);
+						printf("%s%s", delim, q);
+						delim = ",";
+						rt = rt->next;
+					}
+					printf("\n");
+				}
+				else {
+					printf("%s\n", to);
+				}
+
+				if(have_from) {
+					printf("          \t      \t\t                   \t\t%s\n", 
+						from);
+				}
+				fclose(f);
+				free(fpath);
+				free(to);
+				continue;
+			}
+
 			if(pipe(fd_pipe) == -1) {
-				fprintf(stderr, "pipe() failed\n");
+				fprintf(stderr, "%s: Skipped '%s': pipe() failed\n", 
+					prog, fpath);
+				fclose(f);
+				free(fpath);
+				free(to);
 				continue;
 			}
 
@@ -2151,7 +2178,11 @@ void queue_process(int interval, bool_t dofork)
 				if(log_level > 0) {
 					log_event(LOG_ERR, "Could not send mail: fork() failed");
 				}
-				fprintf(stderr, "fork() failed\n");
+				fprintf(stderr, "%s: Skipped '%s': fork() failed\n", prog, fpath);
+				fclose(f);
+				free(fpath);
+				free(to);
+				continue;
 			}
 			else if(pid != 0) {
 				close(fd_pipe[0]);
@@ -2164,17 +2195,20 @@ void queue_process(int interval, bool_t dofork)
 					}
 				}
 				close(fd_pipe[1]);
+				unlink(fpath);
 				fclose(f);
-				remove(fpath);
+				free(fpath);
+				free(to);
 				wait(&r);
 			}
 			else {
+				fclose(f);
+				free(fpath);
 				close(fd_pipe[1]);
 				if(dup2(fd_pipe[0], STDIN_FILENO) == -1) {
 					die("queue_process() -- dup2() failed");
 				}
-				/* rewrite args */
-				exit(ssmtp((char*[]){ strdup(prog), to + 5, NULL }));
+				exit(main(2, (char*[]){ prog, to, NULL }));
 			}
 		}
 
@@ -2183,7 +2217,14 @@ void queue_process(int interval, bool_t dofork)
 		if(!interval) {
 			break;
 		}
-		sleep(interval);
+
+		inttmp = interval;
+		while(inttmp > UINT_MAX) {
+			sleep(UINT_MAX);
+			inttmp -= UINT_MAX;
+		}
+		sleep((unsigned int) inttmp);
+		#undef BUFSZ
 	}
 
 	if(!found_some) {
@@ -2200,14 +2241,18 @@ char **parse_options(int argc, char *argv[])
 {
 	static char Version[] = VERSION;
 	static char *new_argv[MAXARGS];
-	int i, j, add, new_argc;
+	int i, j, l, add, new_argc; 
+	unsigned long interval = 0;
+	bool_t daemonize = False, fork = False, proc_queue = False,
+		done = False;
 
 	new_argv[0] = argv[0];
 	new_argc = 1;
 
 	if(strcmp(prog, "mailq") == 0) {
 		/* Someone wants to know the queue state... */
-		paq("mailq: Mail queue is empty\n");
+		queue_process(0, False, True);
+		exit(0);
 	}
 	else if(strcmp(prog, "newaliases") == 0) {
 		/* Someone wanted to rebuild aliases */
@@ -2294,14 +2339,17 @@ char **parse_options(int argc, char *argv[])
 				case 'a':	/* ARPANET mode */
 						paq("-ba is not supported by sSMTP\n");
 				case 'd':	/* Run as a daemon */
-						paq("-bd is not supported by sSMTP\n");
+						daemonize = True;
+						fork = True;
+						break;
 				case 'i':	/* Initialise aliases */
 						paq("%s: Aliases are not used in sSMTP\n", prog);
 				case 'm':	/* Default addr processing */
 						continue;
 
 				case 'p':	/* Print mailqueue */
-						paq("%s: Mail queue is empty\n", prog);
+						queue_process(0, False, True);
+						exit(0);
 				case 's':	/* Read SMTP from stdin */
 						paq("-bs is not supported by sSMTP\n");
 				case 't':	/* Test mode */
@@ -2503,12 +2551,62 @@ char **parse_options(int argc, char *argv[])
 
 			/* Process the queue [at time] */
 			case 'q':
-				//if(queue_dir == (char *)NULL) {
-				//	paq("%s: Mail queue is empty\n", prog);
-				//}
-				//else {
-					queue_process(0, False);
-				//}
+				done = False;
+				proc_queue = True;
+				while(done == False) {
+					switch(argv[i][++j]) {
+					case 'f':
+						fork = False;
+						break;
+					case '\0':
+						done = True;
+						j--;
+						break;
+					default:
+						if(isdigit(argv[i][j])) {
+							char *num = &argv[i][j];
+							while(*num) {
+								l = 0;
+								while(isdigit(num[++l]));
+								switch(num[l]) {
+								case 'm':
+									num[l] = '\0';
+									interval += strtoul(num, NULL, 10) * 60;
+									break;
+								case 's':
+									num[l] = '\0';
+									interval += strtoul(num, NULL, 10);
+									break;
+								case 'h':
+									num[l] = '\0';
+									interval += strtoul(num, NULL, 10) * 60 * 60;
+									break;
+								case 'd':
+									num[l] = '\0';
+									interval += strtoul(num, NULL, 10) * 60 * 60 * 24;
+									break;
+								case 'w':
+									num[l] = '\0';
+									interval += strtoul(num, NULL, 10) * 60 * 60 * 24 * 7;
+									break;
+								case '\0':
+									if(num != &argv[i][j]) {
+										die("Invalid argument\n");
+									}
+									num[l] = '\0';
+									interval += strtoul(num, NULL, 10) * 60;
+									goto breakout;
+								default:
+									die("Invalid argument\n");
+								}
+								num = &num[++l];
+							}
+							breakout:
+							break;
+						}
+						break;
+					}
+				}
 				break;
 
 			/* Read message's To/Cc/Bcc lines */
@@ -2532,6 +2630,14 @@ char **parse_options(int argc, char *argv[])
 		i += add;
 	}
 	new_argv[new_argc] = NULL;
+
+	if (daemonize && proc_queue == False) {
+		paq("-bd is only supported by sSMTP when used with -q\n");
+	}
+	else if (proc_queue == True) {
+		queue_process(interval, fork, False);
+		exit(0);
+	}
 
 	if(new_argc <= 1 && !minus_t) {
 		paq("%s: No recipients supplied - mail will not be sent\n", prog);
