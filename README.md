@@ -14,6 +14,9 @@ This fork includes the following improvements over the original sSMTP:
 * Added support for overriding the global configuration through
   individual users configuration files;
 * Added support for storing user passwords in a keyring with the
-  ssh-askpass program
+  ssh-askpass program;
 * A number of minor bug fixes and alt platform support (mostly borrowed 
-  from Gentoo's sSMTP patchset)
+  from Gentoo's sSMTP patchset);
+* Added queue support. When a transfer fails it is queued (if queue directory is set)
+  for sending later. The sendmail -q and -q[time] options are simulated
+  so it can run as a daemon.
