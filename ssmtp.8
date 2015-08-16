@@ -72,7 +72,8 @@ and ``Sender:'' fields are examined for the name of the sender.
 
 .TP
 .B \-bd 
-(unsupported) Run as a daemon.
+Run as a daemon. This option is only supported when used
+in combination with -q[time].
 
 .TP
 .B \-bi
@@ -226,7 +227,13 @@ From: line is specified within the header of the email.
 
 .TP
 \fB\-q\fP\fI[time]\fP
-(simulated) Process the queue.
+Processed saved messages in the queue at given intervals.  If
+time is omitted, process the queue once.  Time is given as a
+tagged number, with `s' being seconds, `m' being minutes, `h'
+being hours, `d' being days, and `w' being weeks.  For exam-
+ple, `-q1h30m' or `-q90m' would both set the timeout to one
+hour thirty minutes.  If time is specified, sendmail will run
+in background.  This option can be used safely with -bd.
 
 .TP
 \fB\-r\fP\fIname\fP
