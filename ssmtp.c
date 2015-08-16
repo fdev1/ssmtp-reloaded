@@ -61,6 +61,7 @@ bool_t use_tls = False;			/* Use SSL to transfer mail to HUB */
 bool_t use_starttls = False;		/* SSL only after STARTTLS (RFC2487) */
 bool_t use_cert = False;		/* Use a certificate to transfer SSL mail */
 bool_t use_oldauth = False;		/* use old AUTH LOGIN username style */
+bool_t do_not_queue = False;		/* set to true when sending from queue */
 
 #define ARPADATE_LENGTH 32		/* Current date in RFC format */
 char arpadate[ARPADATE_LENGTH];
@@ -340,6 +341,9 @@ void __attribute__((noreturn)) die(char *format, ...)
 	log_event(LOG_ERR, "%s", buf);
 
 	if(queue_dir != (char *)NULL) {
+		/* if we're sending from queue do not requeue */
+		if(do_not_queue)
+			exit(1);
 		/* Enqueue message for sending later */
 		if(queue_message()) {
 			fprintf(stderr, "%s: Message queued\n", prog);
@@ -2195,11 +2199,15 @@ void queue_process(unsigned long interval,
 					}
 				}
 				close(fd_pipe[1]);
-				unlink(fpath);
 				fclose(f);
-				free(fpath);
 				free(to);
 				wait(&r);
+
+				if (!r) {
+					unlink(fpath);
+				}
+
+				free(fpath);
 			}
 			else {
 				fclose(f);
@@ -2208,6 +2216,7 @@ void queue_process(unsigned long interval,
 				if(dup2(fd_pipe[0], STDIN_FILENO) == -1) {
 					die("queue_process() -- dup2() failed");
 				}
+				do_not_queue = True;
 				exit(main(2, (char*[]){ prog, to, NULL }));
 			}
 		}
