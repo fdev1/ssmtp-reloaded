@@ -47,6 +47,8 @@
 #include <langinfo.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <paths.h>
+#include <errno.h>
 
 bool_t have_date = False;
 bool_t have_from = False;
@@ -69,7 +71,7 @@ char arpadate[ARPADATE_LENGTH];
 char *auth_user = (char*)NULL;
 char *auth_pass = (char*)NULL;
 char *auth_askpass = (char*)NULL;
-char *auth_method = (char*)NULL;		/* Mechanism for SMTP authentication */
+char *auth_method = (char*)NULL;	/* Mechanism for SMTP authentication */
 char *mail_domain = (char*)NULL;
 char *from = (char*)NULL;		/* Use this as the From: address */
 char *hostname;
@@ -157,6 +159,29 @@ int smtp_read_all(int fd, char *response);
 int smtp_okay(int fd, char *response);
 
 /*
+gettmpdir() -- gets the temp directory
+*/
+const char *gettmpdir(void)
+{
+	char *tmp = NULL;
+	if(getuid() == geteuid() || getgid() == getegid()) {
+		tmp = getenv("TMPDIR");
+	}
+	#if defined(P_tmpdir)
+	if(!tmp) {
+		tmp = P_tmpdir;
+	}
+	#endif
+	if(!tmp) {
+		tmp = _PATH_TMP;
+	}
+	if(!tmp) {
+		tmp = "/tmp";
+	}
+	return tmp;
+}
+
+/*
 dead_letter() -- Save stdin to ~/dead.letter if possible
 */
 void dead_letter(void)
@@ -221,12 +246,29 @@ void dead_letter(void)
 }
 
 /*
+genmailid() -- generates an email id
+*/
+const char *genmailid(void)
+{
+	int i, j;
+	static char mailid[13];
+	char charset[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+	for(i = 0; i < 12; i++) {
+		j = (int) ((double) rand() / RAND_MAX * (sizeof(charset) - 1));
+		mailid[i] = charset[j];
+	}
+	mailid[12] = '\0';
+	return mailid;
+}
+
+/*
 queue_message() -- save message to queue directory
 */
 bool_t queue_message(const char *err)
 {
 	int fd, i;
 	const char *delim = "sSMTP:";
+	const char *temp;
 	char *p, *q, *template, buf[64];
 	if(isatty(fileno(stdin))) {
 		if(log_level > 0) {
@@ -235,7 +277,8 @@ bool_t queue_message(const char *err)
 		fprintf(stderr, "%s: Message not queued: STDIN is a TTY\n", prog);
 		return False;
 	}
-	template = malloc(strlen(queue_dir) + (13 * sizeof(char)));
+	temp = gettmpdir();
+	template = malloc(strlen(temp) + (13 * sizeof(char)));
 	if(!template) {
 		if(log_level > 0) {
 			log_event(LOG_ERR, "Could not queue message: out of memory");
@@ -243,7 +286,7 @@ bool_t queue_message(const char *err)
 		fprintf(stderr, "%s: Could not queue message: out of memory\n", prog);
 		return False;
 	}
-	strcpy(template, queue_dir);
+	strcpy(template, temp);
 	strcat(template, "/mail-XXXXXX");
 	if((fd = mkstemp(template)) == -1) {
 		if(log_level > 0) {
@@ -327,7 +370,24 @@ bool_t queue_message(const char *err)
 		}
 	}
 	close(fd);
-	i = chmod(template, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+	if(chdir(queue_dir) == -1) {
+		fprintf(stderr, "%s: Could not access queue directory: %s",
+			prog, queue_dir);
+		remove(template);
+		free(template);
+		return False;
+	}
+	temp = genmailid();
+	while(link(template, temp) == -1) {
+		if(errno != EEXIST) {
+			remove(template);
+			free(template);
+			return False;
+		}
+		temp = genmailid();
+	}
+	i = chmod(temp, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+	unlink(template);
 	free(template);
 	return True;
 
@@ -2111,7 +2171,7 @@ queue_process() -- Process queued messages
 */
 void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 {
-	int pid, fd_pipe[2], r;
+	int pid, fd_pipe[2], fd_lock, r;
 	unsigned long inttmp;
 	bool_t found_some = False;
 
@@ -2141,6 +2201,9 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 	if(queue_dir == (char *)NULL) {
 		paq("%s: Mail queue is empty\n", prog);
 	}
+	if(chdir(queue_dir) == -1) {
+		die("Could not access queue directory\n");
+	}
 	if(list_only) {
 		printf("-Queue ID-\t-Size-\t\t----Arrival Time---\t\t-Recipient-\n");
 	}
@@ -2151,9 +2214,23 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 		DIR *qdir;
 		struct dirent *dp;
 		FILE *f;
-		char *to, *err, *fpath, buf[BUFSZ];
+		char *to, *err, buf[BUFSZ];
 		struct stat stats;
 		int s, slen;
+
+		/* if we're processing the queue, lock it */
+		if (!list_only) {
+			if((fd_lock = creat(".queue-lock",
+				S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP)) == -1) {
+				fprintf(stderr, "Could not lock queue\n");
+				exit(1);
+			}
+			r = chown(".queue-lock", 0, getegid());
+			r = chmod(".queue-lock", S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+			while(lockf(fd_lock, F_TLOCK, 0) != 0) {
+				sleep(1);
+			}
+		}
 
 		qdir = opendir(queue_dir);
 		if(qdir == NULL) {
@@ -2161,18 +2238,10 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 		}
 
 		while((dp = readdir(qdir)) != NULL) {
-			if(!strcmp(dp->d_name, ".") || !strcmp(dp->d_name, "..")) {
+			if(dp->d_name[0] == '.') {
 				continue;
 			}
-			fpath = malloc(strlen(queue_dir) + strlen(dp->d_name) + (2*sizeof(char)));
-			if(!fpath) {
-				fprintf(stderr, "%s: Could not process '%s':  out of memory\n", 
-					prog, dp->d_name);
-				continue;
-			}
-			sprintf(fpath, "%s/%s", queue_dir, dp->d_name);
-
-			if(stat(fpath, &stats) == -1) {
+			if(stat(dp->d_name, &stats) == -1) {
 				continue;
 			}
 
@@ -2182,15 +2251,14 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 			}
 
 			found_some = True;
-			f = fopen(fpath, "r");
+			f = fopen(dp->d_name, "r");
 			if(!f) {
-				fprintf(stderr, "%s: Cannot open: '%s'. Skipping\n", prog, fpath);
-				free(fpath);
+				fprintf(stderr, "%s: Cannot open: '%s/%s'. Skipping\n",
+					prog, queue_dir, dp->d_name);
 				continue;
 			}
 			if(fgets(buf, 7, f) != buf || strcmp(buf, "sSMTP:")) {
 				fclose(f);
-				free(fpath);
 				continue;
 			}
 
@@ -2205,16 +2273,14 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 					s += BUFSZ;
 					to = realloc(to, s + 1);
 					if(!to) {
-						fprintf(stderr, "%s: Could not process '%s': out of memory\n",
-							prog, fpath);
-						free(fpath);
+						fprintf(stderr, "%s: Could not process '%s/%s': out of memory\n",
+							prog, queue_dir, dp->d_name);
 						continue;
 					}
 				}
 				to[slen++] = (char) r;
 			}
 			if(!to) {
-				free(fpath);
 				continue;
 			}
 			else {
@@ -2244,10 +2310,7 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 				tm = localtime(&stats.st_mtime);
 				strftime(sdate, sizeof(sdate), nl_langinfo(D_T_FMT), tm);
 
-				printf("%s\t\t%i\t\t%s\t", 
-					&dp->d_name[strlen(dp->d_name)-6],
-					r,
-					sdate);
+				printf("%s\t%i\t\t%s\t", dp->d_name, r, sdate);
 				if(!strcmp(to, "-t")) {
 					rt = &rcpt_list;
 					while(rt->next) {
@@ -2271,16 +2334,14 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 					printf("%s\n", err);
 				}
 				fclose(f);
-				free(fpath);
 				free(to);
 				continue;
 			}
 
 			if(pipe(fd_pipe) == -1) {
-				fprintf(stderr, "%s: Skipped '%s': pipe() failed\n", 
-					prog, fpath);
+				fprintf(stderr, "%s: Skipped '%s/%s': pipe() failed\n",
+					prog, queue_dir, dp->d_name);
 				fclose(f);
-				free(fpath);
 				free(to);
 				continue;
 			}
@@ -2291,9 +2352,9 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 				if(log_level > 0) {
 					log_event(LOG_ERR, "Could not send mail: fork() failed");
 				}
-				fprintf(stderr, "%s: Skipped '%s': fork() failed\n", prog, fpath);
+				fprintf(stderr, "%s: Skipped '%s/%s': fork() failed\n",
+					prog, queue_dir, dp->d_name);
 				fclose(f);
-				free(fpath);
 				free(to);
 				continue;
 			}
@@ -2313,24 +2374,35 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 				wait(&r);
 
 				if (!r) {
-					unlink(fpath);
+					unlink(dp->d_name);
 				}
-
-				free(fpath);
 			}
 			else {
 				fclose(f);
-				free(fpath);
 				close(fd_pipe[1]);
 				if(dup2(fd_pipe[0], STDIN_FILENO) == -1) {
 					die("queue_process() -- dup2() failed");
 				}
+
+				/* if this is root sending of behalf of
+				 * another user impersonate that user */
+				if(getuid() != stats.st_uid) {
+					if(setuid(stats.st_uid) == -1) {
+						fprintf(stderr, "%s: Could not send %s: setuid() failed\n");
+						exit(1);
+					}
+				}
+
 				do_not_queue = True;
 				exit(main(2, (char*[]){ prog, to, NULL }));
 			}
 		}
 
 		closedir(qdir);
+
+		if(!list_only) {
+			close(fd_lock);
+		}
 
 		if(!interval) {
 			break;
