@@ -62,6 +62,7 @@ bool_t use_starttls = False;		/* SSL only after STARTTLS (RFC2487) */
 bool_t use_cert = False;		/* Use a certificate to transfer SSL mail */
 bool_t use_oldauth = False;		/* use old AUTH LOGIN username style */
 bool_t do_not_queue = False;		/* set to true when sending from queue */
+bool_t sending = False;			/* Indicates that we're already transmitting */
 
 #define ARPADATE_LENGTH 32		/* Current date in RFC format */
 char arpadate[ARPADATE_LENGTH];
@@ -222,7 +223,7 @@ void dead_letter(void)
 /*
 queue_message() -- save message to queue directory
 */
-bool_t queue_message(void)
+bool_t queue_message(const char *err)
 {
 	int fd, i;
 	const char *delim = "sSMTP:";
@@ -239,7 +240,7 @@ bool_t queue_message(void)
 		if(log_level > 0) {
 			log_event(LOG_ERR, "Could not queue message: out of memory");
 		}
-		fprintf(stderr, "%s: Could not queue message: out of memory", prog);
+		fprintf(stderr, "%s: Could not queue message: out of memory\n", prog);
 		return False;
 	}
 	strcpy(template, queue_dir);
@@ -248,7 +249,7 @@ bool_t queue_message(void)
 		if(log_level > 0) {
 			log_event(LOG_ERR, "Could not queue message: mkstemp(\"%s\") failed", template);
 		}
-		fprintf(stderr, "%s: Could not queue message: mkstemp() failed", prog);
+		fprintf(stderr, "%s: Could not queue message: mkstemp(\"%s\") failed\n", prog, template);
 		free(template);
 		return False;
 	}
@@ -294,6 +295,21 @@ bool_t queue_message(void)
 		}
 	}
 	#endif
+
+	if(err) {
+		char *source = "127.0.0.1";
+		if(sending) {
+			source = mailhost;
+		}
+		if(write(fd, "|(host ", sizeof(char) * 7) == -1 ||
+			write(fd, source, strlen(source)) == -1 ||
+			write(fd, " says ", sizeof(char) * 6) == -1 ||
+			write(fd, err, strlen(err)) == -1 ||
+			write(fd, ")", sizeof(char)) == -1) {
+			goto write_failed;
+		}
+	}
+
 	ht = &headers;
 	while(ht->next) {
 		if(write(fd, "\n", sizeof(char)) == -1 ||
@@ -311,6 +327,7 @@ bool_t queue_message(void)
 		}
 	}
 	close(fd);
+	i = chmod(template, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
 	free(template);
 	return True;
 
@@ -325,6 +342,16 @@ write_failed:
 	return False;
 }
 
+void debug_print(char *format, ...) 
+{
+	if(minus_v) {
+		va_list ap;
+		va_start(ap, format);
+		vfprintf(stderr, format, ap);
+		va_end(ap);
+	}
+}
+
 /*
 die() -- Write error message, dead.letter or queue and exit
 */
@@ -334,10 +361,10 @@ void __attribute__((noreturn)) die(char *format, ...)
 	va_list ap;
 
 	va_start(ap, format);
-	(void)vsnprintf(buf, BUF_SZ, format, ap);
+	vsnprintf(buf, BUF_SZ, format, ap);
 	va_end(ap);
 
-	(void)fprintf(stderr, "%s: %s\n", prog, buf);
+	fprintf(stderr, "%s: %s\n", prog, buf);
 	log_event(LOG_ERR, "%s", buf);
 
 	if(queue_dir != (char *)NULL) {
@@ -345,7 +372,7 @@ void __attribute__((noreturn)) die(char *format, ...)
 		if(do_not_queue)
 			exit(1);
 		/* Enqueue message for sending later */
-		if(queue_message()) {
+		if(queue_message(buf)) {
 			fprintf(stderr, "%s: Message queued\n", prog);
 			exit(0);
 		}
@@ -355,7 +382,7 @@ void __attribute__((noreturn)) die(char *format, ...)
 	}
 	else {
 		/* Send message to dead.letter */
-		(void)dead_letter();
+		dead_letter();
 	}
 	exit(1);
 }
@@ -1007,6 +1034,11 @@ bool_t read_config()
 	bool_t user_config = True;
 	FILE *fp;
 
+	/* no need for child processes to re-read config */
+	if(config_file) {
+		return True;
+	}
+	
 	if(config_file == (char *)NULL) {
 		char *home_config = getenv("HOME");
 		if (home_config != (char*)NULL) {
@@ -1396,6 +1428,30 @@ char *auth_getpass(void)
 	}
 }
 
+#if HAVE_SSL
+void ssl_error(SSL* ssl, int err)
+{
+	switch(SSL_get_error(ssl, err)) {
+	case SSL_ERROR_ZERO_RETURN: die("SSL Error: SSL_ERROR_ZERO_RETURN\n");
+	case SSL_ERROR_WANT_READ: die("SSL Error: SSL_ERROR_WANT_READ\n");
+	case SSL_ERROR_WANT_WRITE: die("SSL Error: SSL_ERROR_WANT_WRITE\n");
+	#if !HAVE_GNUTLS
+	case SSL_ERROR_WANT_CONNECT: die("SSL Error: SSL_ERROR_WANT_CONNECT\n");
+	case SSL_ERROR_WANT_ACCEPT: die("SSL Error: SSL_ERROR_WANT_ACCEPT\n");
+	case SSL_ERROR_WANT_X509_LOOKUP: die("SSL Error: SSL_ERROR_WANT_X508_LOOKUP\n");
+	#endif
+	case SSL_ERROR_SYSCALL: die("SSL Error: SSL_ERROR_SYSCALL\n");
+	case SSL_ERROR_SSL: 
+		#if !HAVE_GNUTLS
+		if(minus_v) {
+			ERR_print_errors_fp (stderr);
+		}
+		#endif
+		die("SSL Error: SSL_ERROR_SSL\n");
+	}
+}
+#endif
+
 /*
 smtp_open() -- Open connection to a remote SMTP listener
 */
@@ -1502,7 +1558,7 @@ int smtp_open(char *host, int port)
 		log_event(LOG_ERR, "Unable to create a socket");
 		return(-1);
 	}
-
+	
 	for (i = 0; ; ++i) {
 		if (!hent->h_addr_list[i]) {
 			log_event(LOG_ERR, "Unable to connect to %s:%d", host, port);
@@ -1561,7 +1617,7 @@ int smtp_open(char *host, int port)
 
 		err = SSL_connect(ssl);
 		if(err < 0) { 
-			perror("SSL_connect");
+			ssl_error(ssl, err);
 			return(-1);
 		}
 
@@ -1775,6 +1831,9 @@ int ssmtp(char *argv[])
 		die("Connection lost in middle of processing");
 	}
 
+	sending = True;
+	debug_print("Connecting to %s:%i...\n", mailhost, port);
+
 	if((sock = smtp_open(mailhost, port)) == -1) {
 		die("Cannot open %s:%d", mailhost, port);
 	}
@@ -1823,30 +1882,51 @@ int ssmtp(char *argv[])
 		}
 		else {
 #endif
-		memset(buf, 0, bufsize);
-		to64frombits(buf, (unsigned char*)auth_user, strlen(auth_user));
-		if (use_oldauth) {
-			outbytes += smtp_write(sock, "AUTH LOGIN %s", buf);
-		}
-		else {
-			outbytes += smtp_write(sock, "AUTH LOGIN");
-			(void)alarm((unsigned) MEDWAIT);
-			if(smtp_read(sock, buf) != 3) {
-				die("Server didn't like our AUTH LOGIN (%s)", buf);
-			}
-			/* we assume server asked us for Username */
+		if(auth_method && strcasecmp(auth_method, "login") == 0) {
 			memset(buf, 0, bufsize);
 			to64frombits(buf, (unsigned char*)auth_user, strlen(auth_user));
-			outbytes += smtp_write(sock, buf);
+			if (use_oldauth) {
+				outbytes += smtp_write(sock, "AUTH LOGIN %s", buf);
+			}
+			else {
+				outbytes += smtp_write(sock, "AUTH LOGIN");
+				(void)alarm((unsigned) MEDWAIT);
+				if(smtp_read(sock, buf) != 3) {
+					die("Server didn't like our AUTH LOGIN (%s)", buf);
+				}
+				/* we assume server asked us for Username */
+				memset(buf, 0, bufsize);
+				to64frombits(buf, (unsigned char*)auth_user, strlen(auth_user));
+				outbytes += smtp_write(sock, buf);
+			}
+
+			(void)alarm((unsigned) MEDWAIT);
+			if(smtp_read(sock, buf) != 3) {
+				die("Server didn't accept AUTH LOGIN (%s)", buf);
+			}
+			memset(buf, 0, bufsize);
+
+			to64frombits(buf, (unsigned char*)auth_pass, strlen(auth_pass));
+		}
+		else {
+			char *authbuf = malloc((strlen(auth_user) * 2) + strlen(auth_pass) + 2);
+			outbytes += smtp_write(sock, "AUTH PLAIN");
+			alarm((unsigned) MEDWAIT);
+			if(smtp_read(sock, buf) != 3) {
+				die("Server didn't accept AUTH PLAIN");
+			}
+			if(!authbuf) {
+				die("out of memory");
+			}
+			memset(buf, 0, bufsize);
+			strcpy(authbuf, auth_user);
+			strcpy(authbuf+1+strlen(auth_user), auth_user);
+			strcpy(authbuf+2+(2*strlen(auth_user)), auth_pass);
+			to64frombits(buf, (unsigned char*)authbuf, 
+				(strlen(auth_user)*2)+strlen(auth_pass)+2);
+			free(authbuf);
 		}
 
-		(void)alarm((unsigned) MEDWAIT);
-		if(smtp_read(sock, buf) != 3) {
-			die("Server didn't accept AUTH LOGIN (%s)", buf);
-		}
-		memset(buf, 0, bufsize);
-
-		to64frombits(buf, (unsigned char*)auth_pass, strlen(auth_pass));
 #ifdef MD5AUTH
 		}
 #endif
@@ -2053,11 +2133,11 @@ void queue_process(unsigned long interval,
 		 */
 		signal(SIGHUP, SIG_DFL);
 		signal(SIGINT, SIG_DFL);
-		config_file = NULL; /* why? */
 	}
-
-	if(read_config() == False) {
-		die("Could not read '%s'", config_file);
+	else {
+		if(read_config() == False) {
+			die("Could not read '%s'", config_file);
+		}
 	}
 	if(queue_dir == (char *)NULL) {
 		paq("%s: Mail queue is empty\n", prog);
@@ -2072,8 +2152,8 @@ void queue_process(unsigned long interval,
 		DIR *qdir;
 		struct dirent *dp;
 		FILE *f;
-		char *to, *fpath, buf[BUFSZ];
-		size_t s;
+		char *to, *err, *fpath, buf[BUFSZ];
+		size_t s, slen;
 
 		qdir = opendir(queue_dir);
 		if(qdir == NULL) {
@@ -2087,7 +2167,7 @@ void queue_process(unsigned long interval,
 			found_some = True;
 			fpath = malloc(strlen(queue_dir) + strlen(dp->d_name) + (2*sizeof(char)));
 			if(!fpath) {
-				fprintf(stderr, "%s: Could not process '%s':  out of memory", 
+				fprintf(stderr, "%s: Could not process '%s':  out of memory\n", 
 					prog, dp->d_name);
 				continue;
 			}
@@ -2098,16 +2178,46 @@ void queue_process(unsigned long interval,
 				free(fpath);
 				continue;
 			}
-			if(fgets(buf, 7, f) != buf) {
-				continue;
-			}
-			if(strcmp(buf, "sSMTP:") != 0) {
+			if(fgets(buf, 7, f) != buf || strcmp(buf, "sSMTP:")) {
+				fclose(f);
+				free(fpath);
 				continue;
 			}
 
-			/*
-			 * TODO: don't use getline()
-			 */
+			#if 1
+			to = err = NULL;
+			s = 0;
+			slen = 0;
+			while ((r = fgetc(f)) != EOF) {
+				if((char)r == '\n') {
+					break;
+				}
+				if(slen >= s) {
+					s += BUFSZ;
+					to = realloc(to, s + 1);
+					if(!to) {
+						fprintf(stderr, "%s: Could not process '%s': out of memory\n",
+							prog, fpath);
+						free(fpath);
+						continue;
+					}
+				}
+				to[slen++] = (char) r;
+			}
+			if(!to) {
+				free(fpath);
+				continue;
+			}
+			else {
+				to[slen] = '\0';
+			}
+			while(--slen) {
+				if(to[slen] == '|') {
+					to[slen] = '\0';
+					err = to + slen + 1;
+				}
+			}
+			#else
 			to = NULL;
 			if((r=getline(&to, &s, f)) <= 0) {
 				fprintf(stderr, "getline() failed! %i\n", r);
@@ -2117,6 +2227,7 @@ void queue_process(unsigned long interval,
 			}
 			/* remove newline */
 			to[strlen(to)-1] = '\0';
+			#endif
 
 			if(list_only) {
 				struct stat stats;
@@ -2160,6 +2271,9 @@ void queue_process(unsigned long interval,
 				if(have_from) {
 					printf("          \t      \t\t                   \t\t%s\n", 
 						from);
+				}
+				if(err) {
+					printf("%s\n", err);
 				}
 				fclose(f);
 				free(fpath);
