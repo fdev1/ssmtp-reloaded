@@ -2388,7 +2388,8 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 				 * another user impersonate that user */
 				if(getuid() != stats.st_uid) {
 					if(setuid(stats.st_uid) == -1) {
-						fprintf(stderr, "%s: Could not send %s: setuid() failed\n");
+						fprintf(stderr, "%s: Could not send %s: setuid() failed\n",
+							proc, dp->dname);
 						exit(1);
 					}
 				}
