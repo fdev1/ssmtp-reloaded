@@ -20,3 +20,5 @@ This fork includes the following improvements over the original sSMTP:
 * Added queue support. When a transfer fails it is queued (if queue directory is set)
   for sending later. The sendmail -q and -q[time] options are simulated
   so it can run as a daemon.
+* Support for PLAIN authentication method. The original sSMTP only claims
+  to support it.

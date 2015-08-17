@@ -2109,8 +2109,7 @@ void paq(char *format, ...)
 /*
 queue_process() -- Process queued messages
 */
-void queue_process(unsigned long interval, 
-	bool_t dofork, bool_t list_only)
+void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 {
 	int pid, fd_pipe[2], r;
 	unsigned long inttmp;
@@ -2153,7 +2152,8 @@ void queue_process(unsigned long interval,
 		struct dirent *dp;
 		FILE *f;
 		char *to, *err, *fpath, buf[BUFSZ];
-		size_t s, slen;
+		struct stat stats;
+		int s, slen;
 
 		qdir = opendir(queue_dir);
 		if(qdir == NULL) {
@@ -2164,7 +2164,6 @@ void queue_process(unsigned long interval,
 			if(!strcmp(dp->d_name, ".") || !strcmp(dp->d_name, "..")) {
 				continue;
 			}
-			found_some = True;
 			fpath = malloc(strlen(queue_dir) + strlen(dp->d_name) + (2*sizeof(char)));
 			if(!fpath) {
 				fprintf(stderr, "%s: Could not process '%s':  out of memory\n", 
@@ -2172,6 +2171,17 @@ void queue_process(unsigned long interval,
 				continue;
 			}
 			sprintf(fpath, "%s/%s", queue_dir, dp->d_name);
+
+			if(stat(fpath, &stats) == -1) {
+				continue;
+			}
+
+			r = getuid();
+			if(r && r != stats.st_uid) {
+				continue;
+			}
+
+			found_some = True;
 			f = fopen(fpath, "r");
 			if(!f) {
 				fprintf(stderr, "%s: Cannot open: '%s'. Skipping\n", prog, fpath);
@@ -2184,7 +2194,6 @@ void queue_process(unsigned long interval,
 				continue;
 			}
 
-			#if 1
 			to = err = NULL;
 			s = 0;
 			slen = 0;
@@ -2217,20 +2226,8 @@ void queue_process(unsigned long interval,
 					err = to + slen + 1;
 				}
 			}
-			#else
-			to = NULL;
-			if((r=getline(&to, &s, f)) <= 0) {
-				fprintf(stderr, "getline() failed! %i\n", r);
-				fclose(f);
-				free(fpath);
-				continue;
-			}
-			/* remove newline */
-			to[strlen(to)-1] = '\0';
-			#endif
 
 			if(list_only) {
-				struct stat stats;
 				struct tm *tm;
 				char sdate[40] = "                   \t";
 				const char *delim = "";
@@ -2241,13 +2238,11 @@ void queue_process(unsigned long interval,
 				ht = &headers;
 				rt = &rcpt_list;
 				minus_t = True;
-				header_parse(f);				
+				header_parse(f);
 
-				if(!stat(fpath, &stats)) {
-					r = (int) stats.st_size;
-					tm = localtime(&stats.st_mtime);
-					strftime(sdate, sizeof(sdate), nl_langinfo(D_T_FMT), tm);
-				}
+				r = (int) stats.st_size;
+				tm = localtime(&stats.st_mtime);
+				strftime(sdate, sizeof(sdate), nl_langinfo(D_T_FMT), tm);
 
 				printf("%s\t\t%i\t\t%s\t", 
 					&dp->d_name[strlen(dp->d_name)-6],
