@@ -1,8 +1,6 @@
 [Unit]
 Description=sSMTP-Reloaded Timer
 Documentation=man:ssmtp
-RefuseManualStart=yes
-RefuseManualStop=yes
 
 [Timer]
 Persistent=true
