@@ -85,6 +85,7 @@ char *tls_cert = "/etc/ssl/certs/ssmtp.pem";	/* Default Certificate */
 char *uad = (char*)NULL;
 char *config_file = (char*)NULL;		/* alternate configuration file */
 char *queue_dir = (char*)NULL;
+char *comm_error = (char*)NULL;
 
 headers_t headers, *ht;
 
@@ -348,16 +349,22 @@ bool_t queue_message(const char *err)
 	}
 	#endif
 
-	if(err) {
+	if(comm_error) {
 		char *source = "127.0.0.1";
 		if(sending) {
 			source = mailhost;
 		}
 		if(write(fd, "|(host ", sizeof(char) * 7) == -1 ||
 			write(fd, source, strlen(source)) == -1 ||
-			write(fd, " says ", sizeof(char) * 6) == -1 ||
-			write(fd, err, strlen(err)) == -1 ||
+			write(fd, " said: ", sizeof(char) * 7) == -1 ||
+			write(fd, comm_error, strlen(comm_error)) == -1 ||
 			write(fd, ")", sizeof(char)) == -1) {
+			goto write_failed;
+		}
+	}
+	else if (err) {
+		if(write(fd, "|", sizeof(char)) == -1 ||
+			write(fd, err, strlen(err)) == -1) {
 			goto write_failed;
 		}
 	}
@@ -1988,6 +1995,7 @@ int ssmtp(char *argv[])
 	(void)alarm((unsigned) MEDWAIT);
 
 	if(smtp_okay(sock, buf) == False) {
+		comm_error = buf;
 		die("%s (%s)", buf, hostname);
 	}
 
@@ -2008,6 +2016,7 @@ int ssmtp(char *argv[])
 			(void)alarm((unsigned) MEDWAIT);
 
 			if(smtp_read(sock, buf) != 3) {
+				comm_error = buf;
 				die("Server rejected AUTH CRAM-MD5 (%s)", buf);
 			}
 			strncpy(challenge, strchr(buf,' ') + 1, sizeof(challenge));
@@ -2027,6 +2036,7 @@ int ssmtp(char *argv[])
 				outbytes += smtp_write(sock, "AUTH LOGIN");
 				(void)alarm((unsigned) MEDWAIT);
 				if(smtp_read(sock, buf) != 3) {
+					comm_error = buf;
 					die("Server didn't like our AUTH LOGIN (%s)", buf);
 				}
 				/* we assume server asked us for Username */
@@ -2037,6 +2047,7 @@ int ssmtp(char *argv[])
 
 			(void)alarm((unsigned) MEDWAIT);
 			if(smtp_read(sock, buf) != 3) {
+				comm_error = buf;
 				die("Server didn't accept AUTH LOGIN (%s)", buf);
 			}
 			memset(buf, 0, bufsize);
@@ -2051,6 +2062,7 @@ int ssmtp(char *argv[])
 			outbytes += smtp_write(sock, "AUTH PLAIN");
 			alarm((unsigned) MEDWAIT);
 			if(smtp_read(sock, buf) != 3) {
+				comm_error = buf;
 				die("Server didn't accept AUTH PLAIN");
 			}
 			if(!authbuf) {
@@ -2077,6 +2089,7 @@ int ssmtp(char *argv[])
 		(void)alarm((unsigned) MEDWAIT);
 
 		if(smtp_okay(sock, buf) == False) {
+			comm_error = buf;
 			die("Authorization failed (%s)", buf);
 		}
 	}
@@ -2087,6 +2100,7 @@ int ssmtp(char *argv[])
 	(void)alarm((unsigned) MEDWAIT);
 
 	if(smtp_okay(sock, buf) == 0) {
+		comm_error = buf;
 		die("%s", buf);
 	}
 
@@ -2136,6 +2150,7 @@ int ssmtp(char *argv[])
 
 	if(smtp_read(sock, buf) != 3) {
 		/* Oops, we were expecting "354 send your data" */
+		comm_error = buf;
 		die("%s", buf);
 	}
 
@@ -2214,6 +2229,7 @@ int ssmtp(char *argv[])
 	(void)alarm((unsigned) MAXWAIT);
 
 	if(smtp_okay(sock, buf) == 0) {
+		comm_error = buf;
 		die("%s", buf);
 	}
 
