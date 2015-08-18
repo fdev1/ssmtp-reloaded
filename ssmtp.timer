@@ -6,3 +6,6 @@ Documentation=man:ssmtp
 Persistent=true
 OnUnitActiveSec=5min
 Unit=ssmtp.service
+
+[Install]
+WantedBy=timers.target

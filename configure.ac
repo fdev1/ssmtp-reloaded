@@ -5,6 +5,7 @@ dnl Checks for programs.
 AC_PROG_CC
 AC_PROG_INSTALL
 AC_PROG_LN_S
+AC_PROG_MKDIR_P
 
 dnl Checks for libraries.
 
@@ -76,6 +77,19 @@ if test x$enableval = xyes ; then
 	SRCS="$SRCS md5auth/md5c.c md5auth/hmac_md5.c"
 fi
 enableval=""
+
+AC_ARG_WITH(queue-dir,
+[  --with-queue-dir=dir	  default queue directory (default /var/ssmtp/queue)])
+if test x$withval = xyes ; then
+	QUEUEDIR="/var/ssmtp/queue"
+elif test x$withval = xno ; then
+	AC_ERROR(Invalid option: --without-queue-dir)
+else
+	QUEUEDIR="$withval"
+fi
+withval=""
+AC_SUBST(QUEUEDIR)
+
 AC_SUBST(SRCS)
 
 AC_OUTPUT(Makefile)
