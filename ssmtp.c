@@ -1212,8 +1212,17 @@ bool_t read_config()
 		char *begin=buf;
 		char *rightside;
 		/* Make comments invisible */
-		if((p = strchr(buf, '#'))) {
-			*p = '\0';
+		p = buf;
+		while(*p) {
+			if(*p == '#') {
+				*p = '\0';
+				break;
+			}
+			if(*p == ' ' || *p == '\t') {
+				p++;
+				continue;
+			}
+			break;
 		}
 
 		/* Ignore malformed lines and comments */
@@ -1444,7 +1453,11 @@ bool_t read_config()
 				}
 
 				if(log_level > 0) {
+					#if 0
 					log_event(LOG_INFO, "Set AuthPass=\"%s\"\n", auth_pass);
+					#else
+					log_event(LOG_INFO, "Set AuthPass=\"XXXXXX\"\n");
+					#endif
 				}
 			}
 			else if(strcasecmp(p, "AuthMethod") == 0 && !auth_method) {
