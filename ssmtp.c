@@ -74,11 +74,11 @@ char *auth_askpass = (char*)NULL;
 char *auth_method = (char*)NULL;	/* Mechanism for SMTP authentication */
 char *mail_domain = (char*)NULL;
 char *from = (char*)NULL;		/* Use this as the From: address */
-char *hostname;
-char *mailhost = "mailhub";
+char *hostname = (char*)NULL;;
+char *mailhost = (char*)NULL;
 char *minus_f = (char*)NULL;
 char *minus_F = (char*)NULL;
-char *gecos;
+char *gecos = (char*)NULL;;
 char *prog = (char*)NULL;
 char *root = NULL;
 char *tls_cert = "/etc/ssl/certs/ssmtp.pem";	/* Default Certificate */
@@ -319,11 +319,20 @@ bool_t queue_message(const char *err)
 		for (i = 1; rcptv[i] != NULL; i++) {
 			p = strtok(rcptv[i], ",");
 			while(p) {
-				q = rcpt_remap(addr_parse(p));
+				p = addr_parse(p);
+				if(!p) {
+					fprintf(stderr, "%s: Out of memory\n", prog);
+				}
+				if((q = rcpt_remap(p)) == NULL) {
+					fprintf(stderr, "%s: Out of memory\n", prog);
+				}
+				free(p);
 				if(write(fd, delim, strlen(delim)) == -1 ||
 					write(fd, q, strlen(q)) == -1) {
+					free(q);
 					goto write_failed;
 				}
+				free(q);
 				delim = ",";
 				p = strtok(NULL, ",");
 			}
@@ -495,14 +504,14 @@ addr_parse() -- Parse <user@domain.com> from full email address
 */
 char *addr_parse(char *str)
 {
-	char *p, *q;
+	char *p, *q, *s;
 
 #if 0
 	(void)fprintf(stderr, "*** addr_parse(): str = [%s]\n", str);
 #endif
 
 	/* Simple case with email address enclosed in <> */
-	if((p = strdup(str)) == (char *)NULL) {
+	if((s = p = strdup(str)) == (char *)NULL) {
 		die("addr_parse(): strdup()");
 	}
 
@@ -517,6 +526,8 @@ char *addr_parse(char *str)
 		(void)fprintf(stderr, "*** addr_parse(): q = [%s]\n", q);
 #endif
 
+		q = strdup(q);
+		free(s);
 		return(q);
 	}
 
@@ -540,7 +551,8 @@ char *addr_parse(char *str)
 #if 0
 	(void)fprintf(stderr, "*** addr_parse(): p = [%s]\n", p);
 #endif
-
+	p = strdup(p);
+	free(s);
 	return(p);
 }
 
@@ -617,12 +629,18 @@ void revaliases(struct passwd *pw)
 			/* Parse the alias */
 			if(((p = strtok(buf, ":"))) && !strcmp(p, pw->pw_name)) {
 				if((p = strtok(NULL, ": \t\r\n"))) {
+					if(uad) {
+						free(uad);
+					}
 					if((uad = strdup(p)) == (char *)NULL) {
 						die("revaliases() -- strdup() failed");
 					}
 				}
 
 				if((p = strtok(NULL, " \t\r\n:"))) {
+					if(mailhost) {
+						free(mailhost);
+					}
 					if((mailhost = strdup(p)) == (char *)NULL) {
 						die("revaliases() -- strdup() failed");
 					}
@@ -754,7 +772,7 @@ void rcpt_save(char *str)
 		die("rcpt_save() -- malloc() failed");
 	}
 	rt = rt->next;
-
+	rt->string = NULL;
 	rt->next = (rcpt_t *)NULL;
 }
 
@@ -764,7 +782,7 @@ rcpt_parse() -- Break To|Cc|Bcc into individual addresses
 void rcpt_parse(char *str)
 {
 	bool_t in_quotes = False, got_addr = False;
-	char *p, *q, *r;
+	char *p, *q, *r, *s;
 
 #if 0
 	(void)fprintf(stderr, "*** rcpt_parse(): str = [%s]\n", str);
@@ -811,8 +829,11 @@ void rcpt_parse(char *str)
 
 		if(got_addr) {
 			while(*r && isspace(*r)) r++;
-
-			rcpt_save(addr_parse(r));
+			if((s = addr_parse(r)) == NULL) {
+				die("Out of memory on rcpt_parse()");
+			}
+			rcpt_save(s);
+			free(s);
 			r = (q + 1);
 #if 0
 			(void)fprintf(stderr, "*** rcpt_parse(): r = [%s]\n", r);
@@ -822,6 +843,26 @@ void rcpt_parse(char *str)
 		q++;
 	}
 	free(p);
+}
+
+/*
+rcpt_free() -- Free the recipients list
+*/
+void rcpt_free(void)
+{
+	rt = rcpt_list.next;
+	while(rt) {
+		rcpt_t *next = rt->next;
+		if(rt->string) {
+			free(rt->string);
+		}
+		free(rt);
+		rt = next;
+	}
+	if(rcpt_list.string) {
+		free(rcpt_list.string);
+	}
+	memset(&rcpt_list, 0, sizeof(rcpt_t));
 }
 
 #ifdef MD5AUTH
@@ -907,6 +948,9 @@ void header_save(char *str)
 
 #ifdef REWRITE_DOMAIN
 		if(override_from == True) {
+			if(uad != NULL) {
+				free(uad);
+			}
 			uad = from_strip(ht->string);
 		}
 		else {
@@ -953,7 +997,7 @@ void header_save(char *str)
 		die("header_save() -- malloc() failed");
 	}
 	ht = ht->next;
-
+	ht->string = NULL;
 	ht->next = (headers_t *)NULL;
 }
 
@@ -1045,6 +1089,26 @@ void header_parse(FILE *stream)
 		}
 	}
 	(void)free(p);
+}
+
+/*
+headers_free() -- free the headers list
+*/
+void headers_free(void)
+{
+	ht = headers.next;
+	while(ht) {
+		headers_t *next = ht->next;
+		if(ht->string) {
+			free(ht->string);
+		}
+		free(ht);
+		ht = next;
+	}
+	if(headers.string) {
+		free(headers.string);
+	}
+	memset(&headers, 0, sizeof(headers_t));
 }
 
 /*
@@ -1214,6 +1278,7 @@ bool_t read_config()
 				}
 
 				minuserid = atoi(r);
+				free(r);
 
 				if(log_level > 0) {
 					log_event(LOG_INFO, "Set MinUserId=\"%d\"\n", minuserid);
@@ -1595,10 +1660,11 @@ int smtp_open(char *host, int port)
 		break;
 	}
 
+	freeaddrinfo(ai0);
+
 	if(s < 0) {
 		log_event (LOG_ERR,
 			"Unable to connect to \"%s\" port %d.\n", host, port);
-
 		return(-1);
 	}
 #else
@@ -1829,6 +1895,7 @@ int ssmtp(char *argv[])
 {
 	char b[(BUF_SZ + 2)], *buf = b+1, *p, *q;
 	char *remote_addr;
+	char *uad_save;
 #ifdef MD5AUTH
 	char challenge[(BUF_SZ + 1)];
 #endif
@@ -1878,7 +1945,11 @@ int ssmtp(char *argv[])
 
 #if 1
 	/* With FromLineOverride=YES set, try to recover sane MAIL FROM address */
+	uad_save = uad;
 	uad = append_domain(uad);
+	if(uad_save && uad != uad_save) {
+		free(uad_save);
+	}
 #endif
 
 	from = from_format(uad, override_from);
@@ -1889,6 +1960,10 @@ int ssmtp(char *argv[])
 	if(setjmp(TimeoutJmpBuf) != 0) {
 		/* Then the timer has gone off and we bail out */
 		die("Connection lost in middle of processing");
+	}
+
+	if(!mailhost) {
+		die("No mail host configured");
 	}
 
 	sending = True;
@@ -1969,7 +2044,10 @@ int ssmtp(char *argv[])
 			to64frombits(buf, (unsigned char*)auth_pass, strlen(auth_pass));
 		}
 		else {
-			char *authbuf = malloc((strlen(auth_user) * 2) + strlen(auth_pass) + 2);
+			char *authbuf = malloc((strlen(auth_user) * 2) + strlen(auth_pass) + 3);
+			if(!authbuf) {
+				die("Out of memory");
+			}
 			outbytes += smtp_write(sock, "AUTH PLAIN");
 			alarm((unsigned) MEDWAIT);
 			if(smtp_read(sock, buf) != 3) {
@@ -2281,6 +2359,7 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 				to[slen++] = (char) r;
 			}
 			if(!to) {
+				fclose(f);
 				continue;
 			}
 			else {
@@ -2298,9 +2377,9 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 				char sdate[40] = "                   \t";
 				const char *delim = "";
 				r = 0;
-				/* this is not the proper solution!!!!!!! */
-				memset(&headers, 0, sizeof(headers));
-				memset(&rcpt_list, 0, sizeof(rcpt_list));
+
+				headers_free();
+				rcpt_free();
 				ht = &headers;
 				rt = &rcpt_list;
 				minus_t = True;
@@ -2315,10 +2394,18 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 					rt = &rcpt_list;
 					while(rt->next) {
 						char *q;
-						q = rcpt_remap(rt->string);
+						if((q = rcpt_remap(rt->string)) == NULL) {
+							log_event(LOG_ERR, "Could not process '%s': out of memory",
+								dp->d_name);
+							fprintf(stderr, "%s: Out of memory in queue_process(), skipping '%s'\n",
+								prog, dp->d_name);
+							fclose(f);
+							continue;
+						}
 						printf("%s%s", delim, q);
 						delim = ",";
 						rt = rt->next;
+						free(q);
 					}
 					printf("\n");
 				}
