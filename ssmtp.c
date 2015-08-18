@@ -2299,7 +2299,7 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 		die("Could not access queue directory\n");
 	}
 	if(list_only) {
-		printf("-Queue ID-\t-Size-\t\t----Arrival Time---\t\t-Recipient-\n");
+		printf("-Queue ID-\t-Size-\t\t----Arrival Time---\t\t-Sender/Recipient-\n");
 	}
 
 	while (1)
@@ -2308,7 +2308,7 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 		DIR *qdir;
 		struct dirent *dp;
 		FILE *f;
-		char *to, *err, buf[BUFSZ];
+		char *to, *saved_uad, *err, buf[BUFSZ];
 		struct stat stats;
 		int s, slen;
 
@@ -2405,7 +2405,26 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 				tm = localtime(&stats.st_mtime);
 				strftime(sdate, sizeof(sdate), nl_langinfo(D_T_FMT), tm);
 
-				printf("%s\t%i\t\t%s\t", dp->d_name, r, sdate);
+				saved_uad = uad;
+				if(!from) {
+					struct passwd *pw;
+					if((pw = getpwuid(stats.st_uid)) == NULL) {
+						fclose(f);
+						free(to);
+						continue;
+					}
+					revaliases(pw);
+					if(!uad) {
+						uad = append_domain(pw->pw_name);
+					}
+				}
+
+				printf("%s\t%i\t\t%s\t%s\n", dp->d_name, r, sdate, uad);
+				if(err) {
+					printf("%s\n", err);
+				}
+				printf("          \t      \t\t                   \t\t");
+
 				if(!strcmp(to, "-t")) {
 					rt = &rcpt_list;
 					while(rt->next) {
@@ -2416,6 +2435,7 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 							fprintf(stderr, "%s: Out of memory in queue_process(), skipping '%s'\n",
 								prog, dp->d_name);
 							fclose(f);
+							free(to);
 							continue;
 						}
 						printf("%s%s", delim, q);
@@ -2423,19 +2443,18 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 						rt = rt->next;
 						free(q);
 					}
-					printf("\n");
+					printf("\n\n");
 				}
 				else {
-					printf("%s\n", to);
+					printf("%s\n\n", to);
 				}
 
-				if(have_from) {
-					printf("          \t      \t\t                   \t\t%s\n", 
-						from);
+				/* not ideal but it'll do for now */
+				if(saved_uad != uad) {
+					free(uad);
+					uad = saved_uad;
 				}
-				if(err) {
-					printf("%s\n", err);
-				}
+
 				fclose(f);
 				free(to);
 				continue;
