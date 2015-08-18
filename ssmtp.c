@@ -1152,6 +1152,7 @@ bool_t read_config()
 {
 	char buf[(BUF_SZ + 1)], *p, *q, *r;
 	bool_t user_config = True;
+	struct passwd *pw;
 	FILE *fp;
 
 	/* no need for child processes to re-read config */
@@ -1161,6 +1162,11 @@ bool_t read_config()
 	
 	if(config_file == (char *)NULL) {
 		char *home_config = getenv("HOME");
+		if(home_config == NULL) {
+			if((pw = getpwuid(getuid())) != NULL) {
+				home_config = pw->pw_dir;
+			}
+		}
 		if (home_config != (char*)NULL) {
 			config_file = malloc(strlen(home_config)+10);
 			if (config_file == (char*)NULL) {
