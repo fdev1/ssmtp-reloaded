@@ -72,8 +72,9 @@ and ``Sender:'' fields are examined for the name of the sender.
 
 .TP
 .B \-bd 
-Run as a daemon. This option is only supported when used
-in combination with -q[time].
+(simulated) Run as a daemon. This option is ignored when used
+in combination with -q[time]. When used alone ssmtp prints a message
+and exits.
 
 .TP
 .B \-bi
@@ -295,5 +296,3 @@ Fernando Rodriguez (frodriguez.developer@gmail.com)
 .SH BUGS
 sSMTP does not support exception lists to the -t option (never seen it
 used).
-
-sSMTP will fail if the mailhub is unreachable.

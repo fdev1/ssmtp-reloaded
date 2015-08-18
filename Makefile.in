@@ -82,7 +82,7 @@ uninstall-sendmail: uninstall
 # Binaries:
 ssmtp: $(OBJS)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o ssmtp $(OBJS) $(LIBS)
-	sed -e 's:SSMTP:/usr/sbin/ssmtp:g' ssmtp.service.in > ssmtp.service
+	sed -e 's:SSMTP:$(bindir)/ssmtp:g' ssmtp.service.in > ssmtp.service
 
 .PHONY: clean
 clean:

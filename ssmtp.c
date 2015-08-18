@@ -298,34 +298,29 @@ bool_t queue_message(const char *err)
 		return False;
 	}
 	if(minus_t) {
-		#if 1
 		if(write(fd, delim, strlen(delim)) == -1 ||
 			write(fd, "-t", 2) == -1) {
 			goto write_failed;
 		}
-		#else
-		rt = &rcpt_list;			
-		while(rt->next) {
-			q = rcpt_remap(rt->string);
-			if(write(fd, delim, strlen(delim)) == -1 ||
-				write(fd, q, strlen(q)) == -1) {
-				goto write_failed;
-			}
-			delim = ",";
-			rt = rt->next;
-		}
-		#endif
 	}
 	else {
 		for (i = 1; rcptv[i] != NULL; i++) {
 			p = strtok(rcptv[i], ",");
 			while(p) {
-				p = addr_parse(p);
-				if(!p) {
-					fprintf(stderr, "%s: Out of memory\n", prog);
+				if((p = addr_parse(p)) == NULL) {
+					fprintf(stderr, "%s: Could not queue message: Out of memory\n", prog);
+					close(fd);
+					remove(template);
+					free(template);
+					return False;
 				}
 				if((q = rcpt_remap(p)) == NULL) {
-					fprintf(stderr, "%s: Out of memory\n", prog);
+					fprintf(stderr, "%s: Could not queue message: Out of memory\n", prog);
+					close(fd);
+					remove(template);
+					free(template);
+					free(p);
+					return False;
 				}
 				free(p);
 				if(write(fd, delim, strlen(delim)) == -1 ||
@@ -339,16 +334,6 @@ bool_t queue_message(const char *err)
 			}
 		}
 	}
-	#if 0
-	if(have_from) {
-		if(write(fd, "\n", sizeof(char)) == -1 ||
-			write(fd, "From: ", 6) == -1 ||
-			write(fd, from, strlen(from)) == -1) {
-			goto write_failed;
-		}
-	}
-	#endif
-
 	if(comm_error) {
 		char *source = "127.0.0.1";
 		if(sending) {
@@ -396,6 +381,9 @@ bool_t queue_message(const char *err)
 	temp = genmailid();
 	while(link(template, temp) == -1) {
 		if(errno != EEXIST) {
+			log_event(LOG_ERR, "Could not queue message: link() failed errno=%i",
+				errno);
+			fprintf(stderr, "%s: Could not queue message: link failed\n", prog);
 			remove(template);
 			free(template);
 			return False;
@@ -408,9 +396,7 @@ bool_t queue_message(const char *err)
 	return True;
 
 write_failed:
-	if(log_level > 0) {
-		log_event(LOG_ERR, "Could not queue message: write() failed");
-	}
+	log_event(LOG_ERR, "Could not queue message: write() failed");
 	fprintf(stderr, "%s: Could not queue message: write() failed", prog);
 	close(fd);
 	remove(template);
@@ -418,6 +404,9 @@ write_failed:
 	return False;
 }
 
+/*
+debug_print() -- Print debug message to stderr
+*/
 void debug_print(char *format, ...) 
 {
 	if(minus_v) {
@@ -2276,7 +2265,8 @@ void paq(char *format, ...)
 /*
 queue_process() -- Process queued messages
 */
-void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
+void __attribute__((noreturn)) 
+queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 {
 	int pid, fd_pipe[2], fd_lock, r;
 	unsigned long inttmp;
@@ -2285,7 +2275,8 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 	if(dofork) {
 		pid = fork();
 		if(pid == -1) {
-			fprintf(stderr, "%s: Could not daemonize: fork() failed\n", prog);
+			log_event(LOG_ERR, "Could not daemonize: fork() failed");
+			fprintf(stderr, "Could not daemonize: fork() failed\n");
 			exit(1);
 		}
 		else if(pid != 0) {
@@ -2302,14 +2293,17 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 	}
 	else {
 		if(read_config() == False) {
-			die("Could not read '%s'", config_file);
+			fprintf(stderr, "Could not read '%s'\n", config_file);
+			exit(1);
 		}
 	}
 	if(queue_dir == (char *)NULL) {
 		paq("%s: Mail queue is empty\n", prog);
 	}
 	if(chdir(queue_dir) == -1) {
-		die("Could not access queue directory\n");
+		log_event(LOG_ERR, "Could not access queue directory: %s", queue_dir);
+		fprintf(stderr, "Could not access queue directory: %s\n", queue_dir);
+		exit(1);
 	}
 	if(list_only) {
 		printf("-Queue ID-\t-Size-\t\t----Arrival Time---\t\t-Sender/Recipient-\n");
@@ -2329,7 +2323,9 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 		if (!list_only) {
 			if((fd_lock = creat(".queue-lock",
 				S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP)) == -1) {
-				fprintf(stderr, "Could not lock queue\n");
+				log_event(LOG_ERR, "Could not access %s/.queue-lock", queue_dir);
+				fprintf(stderr, "Could not lock queue: could not access %s/.queue-lock\n", 
+					queue_dir);
 				exit(1);
 			}
 			r = chown(".queue-lock", 0, getegid());
@@ -2351,15 +2347,10 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 			if(stat(dp->d_name, &stats) == -1) {
 				continue;
 			}
-
-			r = getuid();
-			if(r && r != stats.st_uid) {
+			if((r = getuid()) != 0 && r != stats.st_uid) {
 				continue;
 			}
-
-			found_some = True;
-			f = fopen(dp->d_name, "r");
-			if(!f) {
+			if((f = fopen(dp->d_name, "r")) == NULL) {
 				fprintf(stderr, "%s: Cannot open: '%s/%s'. Skipping\n",
 					prog, queue_dir, dp->d_name);
 				continue;
@@ -2368,7 +2359,7 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 				fclose(f);
 				continue;
 			}
-
+			found_some = True;
 			to = err = NULL;
 			s = 0;
 			slen = 0;
@@ -2380,14 +2371,20 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 					s += BUFSZ;
 					to = realloc(to, s + 1);
 					if(!to) {
+						log_event(LOG_ERR, "Could not process '%s/%s': out of memory", 
+							queue_dir, dp->d_name);
 						fprintf(stderr, "%s: Could not process '%s/%s': out of memory\n",
 							prog, queue_dir, dp->d_name);
-						continue;
+						/* cleanup and continue done in
+						 * next if statemeent */
+						break;
 					}
 				}
 				to[slen++] = (char) r;
 			}
 			if(!to) {
+				log_event(LOG_ERR, "Invalid mail format: %s/%s",
+					queue_dir, dp->d_name);
 				fclose(f);
 				continue;
 			}
@@ -2474,19 +2471,17 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 			}
 
 			if(pipe(fd_pipe) == -1) {
+				log_event(LOG_ERR, "Skipped '%s/%s': pipe() failed",
+					queue_dir, dp->d_name);
 				fprintf(stderr, "%s: Skipped '%s/%s': pipe() failed\n",
 					prog, queue_dir, dp->d_name);
 				fclose(f);
 				free(to);
 				continue;
 			}
-
-			pid = fork();
-			
-			if(pid == -1) {
-				if(log_level > 0) {
-					log_event(LOG_ERR, "Could not send mail: fork() failed");
-				}
+			if((pid = fork()) == -1) {
+				log_event(LOG_ERR, "Skipped '%s/%s': fork() failed",
+					queue_dir, dp->d_name);
 				fprintf(stderr, "%s: Skipped '%s/%s': fork() failed\n",
 					prog, queue_dir, dp->d_name);
 				fclose(f);
@@ -2523,12 +2518,12 @@ void queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 				 * another user impersonate that user */
 				if(getuid() != stats.st_uid) {
 					if(setuid(stats.st_uid) == -1) {
-						fprintf(stderr, "%s: Could not send %s: setuid() failed\n",
-							prog, dp->d_name);
-						exit(1);
+						log_event(LOG_ERR, "Could not send %s/%s: setuid() failed",
+							queue_dir, dp->d_name);
+						die("Could not send %s/%s: setuid() failed",
+							queue_dir, dp->d_name);
 					}
 				}
-
 				do_not_queue = True;
 				exit(main(2, (char*[]){ prog, to, NULL }));
 			}
