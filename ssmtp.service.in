@@ -6,4 +6,4 @@ RefuseManualStop=yes
 
 [Service]
 Type=oneshot
-ExecStart=SSMTP
+ExecStart=SSMTP -q
