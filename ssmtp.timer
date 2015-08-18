@@ -7,5 +7,4 @@ RefuseManualStop=yes
 [Timer]
 Persistent=true
 OnUnitActiveSec=5min
-Unit=ssmtp-timer.service
-~
+Unit=ssmtp.service

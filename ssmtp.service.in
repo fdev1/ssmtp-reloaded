@@ -1,10 +1,7 @@
 [Unit]
 Description=sSMTP-Reloaded timer service
 Documentation=man:ssmtp
-RefuseManualStart=yes
-RefuseManualStop=yes
 
 [Service]
 Type=oneshot
 ExecStart=SSMTP
-
