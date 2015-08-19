@@ -2702,10 +2702,8 @@ void __attribute__((noreturn)) genconfig(void)
 
 	do {
 		ok = False;
-		printf("Use TLS ");
-		if(user_config) {
-			printf("[%s]", use_tls? "Y/n" : "N/y");
-		}
+		printf("Use TLS");
+		printf("[%s]", (!user_config || use_tls) ? "Y/n" : "N/y");
 		printf("? ");
 		buf = xgetline(buf, &sz);
 		if(strlen(buf)) {
@@ -2727,10 +2725,8 @@ void __attribute__((noreturn)) genconfig(void)
 	do {
 		ok = False;
 		printf("Send StartTLS");
-		if(user_config) {
-			printf(" [%s]", use_starttls? "Y/n" : "y/N");
-		}
-		printf("?");
+		printf(" [%s]", (!user_config || use_starttls)? "Y/n" : "y/N");
+		printf("? ");
 		buf = xgetline(buf, &sz);
 		if(strlen(buf)) {
 			if(!strcasecmp(buf, "Y")) {
