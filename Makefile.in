@@ -72,6 +72,10 @@ install: ssmtp $(GEN_CONFIG)
 install-sendmail: install
 	$(RM) $(DESTDIR)/$(bindir)/sendmail
 	$(LN_S) ssmtp $(DESTDIR)/$(bindir)/sendmail
+	$(INSTALL) -d -m 755 $(DESTDIR)/$(prefix)/bin
+	$(LN_S) ../sbin/ssmtp $(DESTDIR)/$(prefix)/bin/sendmail
+	$(LN_S) ../sbin/ssmtp $(DESTDIR)/$(prefix)/bin/mailq
+	$(LN_S) ../sbin/ssmtp $(DESTDIR)/$(prefix)/bin/newaliases
 	$(INSTALL) -d -m 755 $(DESTDIR)/$(prefix)/lib
 	$(RM) $(DESTDIR)/$(prefix)/lib/sendmail
 	$(LN_S) ../sbin/sendmail $(DESTDIR)/$(prefix)/lib/sendmail
