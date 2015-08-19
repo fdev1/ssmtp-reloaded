@@ -5,7 +5,8 @@ dnl Checks for programs.
 AC_PROG_CC
 AC_PROG_INSTALL
 AC_PROG_LN_S
-AC_PROG_MKDIR_P
+AC_PROG_SED
+AC_PATH_PROG([GROUPADD], [groupadd])
 
 dnl Checks for libraries.
 
@@ -81,14 +82,14 @@ enableval=""
 AC_ARG_WITH(queue-dir,
 [  --with-queue-dir=dir	  default queue directory (default /var/ssmtp/queue)])
 if test x$withval = xyes ; then
-	QUEUEDIR="/var/ssmtp/queue"
+	queuedir="/var/ssmtp/queue"
 elif test x$withval = xno ; then
 	AC_ERROR(Invalid option: --without-queue-dir)
 else
-	QUEUEDIR="$withval"
+	queuedir="$withval"
 fi
 withval=""
-AC_SUBST(QUEUEDIR)
+AC_SUBST(queuedir)
 
 AC_SUBST(SRCS)
 

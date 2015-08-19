@@ -1,5 +1,6 @@
 *.o
 ssmtp
+ssmtp.conf
 config.*
 Makefile
 autom4te.cache/

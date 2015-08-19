@@ -51,4 +51,4 @@ mailhub=mail
 # If messages cannot be delivered queue them to this directory
 # to be sent later by ssmtp-agent instead. If this option is not
 # set failed messages will be written to ~/dead.letter
-#QueueDir=/var/ssmtp/queue
+QueueDir=QUEUEDIR
