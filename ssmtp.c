@@ -2703,7 +2703,7 @@ void __attribute__((noreturn)) genconfig(void)
 	do {
 		ok = False;
 		printf("Use TLS");
-		printf("[%s]", (!user_config || use_tls) ? "Y/n" : "N/y");
+		printf(" [%s]", (!user_config || use_tls) ? "Y/n" : "N/y");
 		printf("? ");
 		buf = xgetline(buf, &sz);
 		if(strlen(buf)) {
@@ -2716,7 +2716,10 @@ void __attribute__((noreturn)) genconfig(void)
 				ok = True;
 			}
 		}
-		else if(user_config) {
+		else {
+			if(!user_config) {
+				use_tls = True;
+			}
 			ok = True;
 		}
 	}
@@ -2724,7 +2727,7 @@ void __attribute__((noreturn)) genconfig(void)
 
 	do {
 		ok = False;
-		printf("Send StartTLS");
+		printf("Send STARTTLS");
 		printf(" [%s]", (!user_config || use_starttls)? "Y/n" : "y/N");
 		printf("? ");
 		buf = xgetline(buf, &sz);
@@ -2738,7 +2741,10 @@ void __attribute__((noreturn)) genconfig(void)
 				ok = True;
 			}
 		}
-		else if(user_config) {
+		else {
+			if(!user_config) {
+				use_starttls = True;
+			}
 			ok = True;
 		}
 	}
@@ -2764,7 +2770,7 @@ void __attribute__((noreturn)) genconfig(void)
 		exit(1);
 	}
 
-	printf("Ask password program (ssh-askpass): ");
+	printf("Ask password program (optional): ");
 	buf = xgetline(buf, &sz);
 	if(auth_askpass) {
 		free(auth_askpass);
