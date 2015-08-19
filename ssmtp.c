@@ -65,6 +65,7 @@ bool_t use_cert = False;		/* Use a certificate to transfer SSL mail */
 bool_t use_oldauth = False;		/* use old AUTH LOGIN username style */
 bool_t do_not_queue = False;		/* set to true when sending from queue */
 bool_t sending = False;			/* Indicates that we're already transmitting */
+bool_t user_config = True;
 
 #define ARPADATE_LENGTH 32		/* Current date in RFC format */
 char arpadate[ARPADATE_LENGTH];
@@ -1151,7 +1152,6 @@ read_config() -- Open and parse config file and extract values of variables
 bool_t read_config()
 {
 	char buf[(BUF_SZ + 1)], *p, *q, *r;
-	bool_t user_config = True;
 	struct passwd *pw;
 	FILE *fp;
 
@@ -2560,6 +2560,371 @@ queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 	exit(0);
 }
 
+char *xgetline(char *buf, unsigned int *sz) {
+	int bytes_read = 0, c;
+	if(*sz == 0) {
+		*sz += 64;
+		buf = realloc(buf, *sz + 1);
+		if(!buf) {
+			fprintf(stderr, "\nOut of memory\n");
+			exit(1);
+		}
+	}
+	while((c = fgetc(stdin)) != EOF) {
+		if(c == '\n') {
+			break;
+		}
+		if(*sz < bytes_read + 1) {
+			*sz += 64;
+			buf = realloc(buf, *sz + 1);
+			if(!buf) {
+				fprintf(stderr, "\nOut of memory\n");
+				exit(1);
+			}
+		}
+		buf[bytes_read++] = (char) c;
+	}
+	buf[bytes_read] = '\0';
+	return buf;
+}
+
+/*
+genconfig() -- Generate user config file
+*/
+void __attribute__((noreturn)) genconfig(void)
+{
+	bool_t ok;
+	unsigned int sz = 0;
+	char *buf = NULL, *p;
+	FILE *f;
+
+	signal(SIGHUP, SIG_DFL);
+	signal(SIGINT, SIG_DFL);
+
+	ok = read_config();
+	if(!ok) {
+		user_config = False;
+	}
+
+	do {
+		ok = False;
+		printf("Email address");
+		if(user_config) {
+			printf(" [%s]", uad);
+		}
+		printf(": ");
+		buf = xgetline(buf, &sz);
+		if(strlen(buf)) {
+			if(uad) {
+				free(uad);
+			}
+			uad = strdup(buf);
+			if(!uad) {
+				fprintf(stderr, "%s: Out of memory\n", prog);
+				exit(1);
+			}
+			ok = True;
+		}
+		else {
+			if(user_config) {
+				ok = True;
+			}
+		}
+	}
+	while(!ok);
+
+	do {
+		ok = False;
+		printf("SMTP Server (port optional)");
+		if(user_config) {
+			printf(" [%s:%i]", mailhost, port);
+		}
+		printf(": ");
+		buf = xgetline(buf, &sz);
+		if(strlen(buf)) {
+			int i;
+			if((p = strchr(buf, ':')) != NULL) {
+				*p++ = '\0';
+				for(i = 0; p[i] != '\0'; i++) {
+					if(!isdigit(p[i])) {
+						continue;
+					}
+				}
+				port = atoi(p);
+			}
+			else {
+				port = 25;
+			}
+			if(mailhost) {
+				free(mailhost);
+			}
+			if((mailhost = strdup(buf)) == NULL) {
+				fprintf(stderr, "%s: Out of memory\n", prog);
+				exit(1);
+			}
+			ok = True;
+		}
+		else {
+			if(user_config) {
+				ok = True;
+			}
+		}
+	}
+	while(!ok);
+
+	#if 1
+	/* this doesn't really applies to user
+	 * configuration since the email address is
+	 * specified */
+	if(hostname) {
+		free(hostname);
+	}
+	if((hostname = strdup("")) == NULL) {
+		fprintf(stderr, "%s: Out of memory\n", prog);
+		exit(1);
+	}
+	#else
+	do {
+		ok = False;
+		printf("Hostname (optional): ");
+		buf = xgetline(buf, &sz);
+		if(hostname) {
+			free(hostname);
+		}
+		if((hostname = strdup(buf)) == NULL) {
+			fprintf(stderr, "Out of memory\n");
+			exit(1);
+		}
+		ok = True;
+	}
+	while(!ok);
+	#endif
+
+	do {
+		ok = False;
+		printf("Use TLS ");
+		if(user_config) {
+			printf("[%s]", use_tls? "Y/n" : "N/y");
+		}
+		printf("? ");
+		buf = xgetline(buf, &sz);
+		if(strlen(buf)) {
+			if(!strcasecmp(buf, "Y")) {
+				use_tls = True;
+				ok = True;
+			}
+			else if(!strcasecmp(buf, "N")) {
+				use_tls = False;
+				ok = True;
+			}
+		}
+		else if(user_config) {
+			ok = True;
+		}
+	}
+	while(!ok);
+
+	do {
+		ok = False;
+		printf("Send StartTLS");
+		if(user_config) {
+			printf(" [%s]", use_starttls? "Y/n" : "y/N");
+		}
+		printf("?");
+		buf = xgetline(buf, &sz);
+		if(strlen(buf)) {
+			if(!strcasecmp(buf, "Y")) {
+				use_starttls = True;
+				ok = True;
+			}
+			else if(!strcasecmp(buf, "N")) {
+				use_starttls = False;
+				ok = True;
+			}
+		}
+		else if(user_config) {
+			ok = True;
+		}
+	}
+	while(!ok);
+
+	printf("Username: ");
+	buf = xgetline(buf, &sz);
+	if(auth_user) {
+		free(auth_user);
+	}
+	if((auth_user = strdup(buf)) == NULL) {
+		fprintf(stderr, "%s: Out of memory\n", prog);
+		exit(1);
+	}
+
+	printf("Password: ");
+	buf = xgetline(buf, &sz);
+	if(auth_pass) {
+		free(auth_pass);
+	}
+	if((auth_pass = strdup(buf)) == NULL) {
+		fprintf(stderr, "%s: Out of memory\n", prog);
+		exit(1);
+	}
+
+	printf("Ask password program (ssh-askpass): ");
+	buf = xgetline(buf, &sz);
+	if(auth_askpass) {
+		free(auth_askpass);
+	}
+	if((auth_askpass = strdup(buf)) == NULL) {
+		fprintf(stderr, "%s: Out of memory\n", prog);
+		exit(1);
+	}
+
+	do {
+		ok = False;
+		printf("Auth method (PLAIN/LOGIN/CRAM-MD5): ");
+		buf = xgetline(buf, &sz);
+		if(strlen(buf)) {
+			if(!strcasecmp("PLAIN", buf) ||
+				!strcasecmp("LOGIN", buf) ||
+				!strcasecmp("CRAM-MD5", buf)) {
+				p = buf;
+				while(*p) {
+					*p = toupper(*p);
+					p++;
+				}
+				if(auth_method) {
+					free(auth_method);
+				}
+				if((auth_method = strdup(buf)) == NULL) {
+					fprintf(stderr, "Out of memory\n");
+					exit(1);
+				}
+				ok = True;
+			}
+		}
+	}
+	while(!ok);
+
+	do {
+		ok = False;
+		printf("Queue directory: ");
+		buf = xgetline(buf, &sz);
+
+		if(queue_dir) {
+			free(queue_dir);
+		}
+		if((queue_dir = strdup(buf)) == NULL) {
+			fprintf(stderr, "Out of memory\n");
+			exit(1);
+		}
+		ok = True;
+	}
+	while(!ok);
+
+	do {
+		ok = False;
+		printf("Enable debug output (to syslog) [%s]? ",
+			(user_config && log_level > 0) ? "Y/n" : "y/N");
+		buf = xgetline(buf, &sz);
+		if(strlen(buf)) {
+			if(!strcasecmp(buf, "Y")) {
+				log_level = 1;
+				ok = True;
+			}
+			else if(!strcasecmp(buf, "N")) {
+				log_level = 0;
+				ok = True;
+			}
+		}
+		else {
+			ok = True;
+		}
+	}
+	while(!ok);
+
+	printf("\n");
+	printf("Summary:\n");
+	printf("--------\n\n");
+	printf("Email: %s\n", uad);
+	printf("Host: %s:%i\n", mailhost, port);
+	if(strlen(hostname)) {
+		printf("Hostname: %s\n", hostname);
+	}
+	printf("Use TLS: %s\n", use_tls? "YES" : "NO");
+	printf("Use STARTTLS: %s\n", use_starttls? "YES" : "NO");
+	if(strlen(auth_user)) {
+		printf("Username: %s\n", auth_user);
+	}
+	if(strlen(auth_pass)) {
+		printf("Password: %s\n", auth_pass);
+	}
+	if(strlen(auth_askpass)) {
+		printf("Ask Password Program: %s\n", auth_askpass);
+	}
+	printf("Auth method: %s\n", auth_method);
+	if(strlen(queue_dir)) {
+		printf("Queue directory: %s\n", queue_dir);
+	}
+	printf("Debug: %s\n", log_level ? "YES" : "NO");
+	printf("\n");
+
+	do {
+		ok = False;
+		printf("Do you want to save these setting (y/n)? ");
+		buf = xgetline(buf, &sz);
+		if(!strcasecmp(buf, "Y")) {
+			ok = True;
+		}
+		else if(!strcasecmp(buf, "N")) {
+			exit(0);
+		}
+	}
+	while(!ok);
+
+	free(buf);
+	if((buf = getenv("HOME")) == NULL) {
+		buf = NULL;
+	}
+	if(!buf) {
+		fprintf(stderr, "%s: Cannot determine home directory\n", prog);
+		exit(1);
+	}
+	if(chdir(buf) == -1) {
+		fprintf(stderr, "%s: Cannot access home directory\n", prog);
+		exit(1);
+	}
+	if((f = fopen(".ssmtprc", "w")) == NULL) {
+		fprintf(stderr, "%s: Cannot open ~/.ssmtprc\n", prog);
+		exit(1);
+	}
+
+	fprintf(f, "Debug=%s\n", log_level ? "YES" : "NO");
+	fprintf(f, "EmailAddress=%s\n", uad);
+	fprintf(f, "Mailhub=%s:%i\n", mailhost, port);
+	if(strlen(hostname)) {
+		fprintf(f, "Hostname=%s\n", hostname);
+	}
+	fprintf(f, "UseTLS=%s\n", use_tls? "YES" : "NO");
+	fprintf(f, "UseSTARTTLS=%s\n", use_starttls? "YES" : "NO");
+	if(strlen(auth_user)) {
+		fprintf(f, "AuthUser=%s\n", auth_user);
+	}
+	if(strlen(auth_pass)) {
+		fprintf(f, "AuthPass=%s\n", auth_pass);
+	}
+	if(strlen(auth_method)) {
+		fprintf(f, "AuthMethod=%s\n", auth_method);
+	}
+	if(strlen(auth_askpass)) {
+		fprintf(f, "AuthAskPass=%s\n", auth_askpass);
+	}
+	if(strlen(queue_dir)) {
+		fprintf(f, "QueueDir=%s\n", queue_dir);
+	}
+	fclose(f);
+	printf("Configuration saved to ~/.ssmtprc\n");
+	exit(0);
+}
+
 /*
 parse_options() -- Pull the options out of the command-line
 	Process them (special-case calls to mailq, etc) and return the rest
@@ -2945,6 +3310,9 @@ char **parse_options(int argc, char *argv[])
 			case 'v':
 				minus_v = True;
 				break;
+
+			case 'G':
+				genconfig();
 
 			/* Say version and quit */
 			/* Similar as die, but no logging */
