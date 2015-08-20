@@ -79,18 +79,6 @@ if test x$enableval = xyes ; then
 fi
 enableval=""
 
-AC_ARG_WITH(queue-dir,
-[  --with-queue-dir=dir	  default queue directory (default /var/ssmtp/queue)])
-if test x$withval = xyes ; then
-	queuedir="/var/ssmtp/queue"
-elif test x$withval = xno ; then
-	AC_ERROR(Invalid option: --without-queue-dir)
-else
-	queuedir="$withval"
-fi
-withval=""
-AC_SUBST(queuedir)
-
 AC_SUBST(SRCS)
 
 AC_OUTPUT(Makefile)
