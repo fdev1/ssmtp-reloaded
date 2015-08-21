@@ -6,7 +6,7 @@ exec_prefix=@exec_prefix@
 libexecdir=@libexecdir@
 queuedir=@localstatedir@/ssmtp/queue
 bindir=$(prefix)/sbin
-mandir=$(prefix)/share/man/man8
+mandir=$(prefix)/share/man
 DESTDIR=
 
 LN_S=@LN_S@
@@ -55,8 +55,10 @@ install: ssmtp $(GEN_CONFIG)
 	$(GROUPADD) -f --system ssmtp
 	$(INSTALL) -d -m 755 $(DESTDIR)/$(bindir)
 	$(INSTALL) -m 2711 --group=ssmtp ssmtp $(DESTDIR)/$(bindir)/ssmtp
-	$(INSTALL) -d -m 755 $(DESTDIR)/$(mandir)
-	$(INSTALL) -m 644 $(srcdir)/ssmtp.8 $(DESTDIR)/$(mandir)/ssmtp.8
+	$(INSTALL) -d -m 755 $(DESTDIR)/$(mandir)/man8
+	$(INSTALL) -d -m 755 $(DESTDIR)/$(mandir)/man5
+	$(INSTALL) -m 644 $(srcdir)/ssmtp.8 $(DESTDIR)/$(mandir)/man8/ssmtp.8
+	$(INSTALL) -m 644 $(srcdir)/ssmtp.conf.5 $(DESTDIR)/$(mandir)/man5/ssmtp.conf.5
 	$(INSTALL) -d -m 755 $(DESTDIR)/$(SSMTPCONFDIR)
 	$(INSTALL) -m 644 $(srcdir)/revaliases $(DESTDIR)/$(INSTALLED_REVALIASES_FILE)
 	$(INSTALL) -d -m 770 --group=ssmtp $(DESTDIR)/$(queuedir)
