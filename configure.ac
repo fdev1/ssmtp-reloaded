@@ -1,5 +1,6 @@
 dnl Process this file with autoconf to produce a configure script.
-AC_INIT(ssmtp.c)
+AC_INIT([ssmtp], [0.9.2])
+AC_CONFIG_SRCDIR(ssmtp.c)
 
 dnl Checks for programs.
 AC_PROG_CC
@@ -76,4 +77,5 @@ enableval=""
 
 AC_SUBST(SRCS)
 
-AC_OUTPUT(Makefile)
+AC_CONFIG_FILES(Makefile)
+AC_OUTPUT
