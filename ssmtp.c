@@ -49,6 +49,7 @@
 #include <sys/wait.h>
 #include <paths.h>
 #include <errno.h>
+#include <time.h>
 
 bool_t have_date = False;
 bool_t have_from = False;
@@ -1442,11 +1443,13 @@ bool_t read_config()
 				}
 			}
 			else if(strcasecmp(p, "AuthPass") == 0 && !auth_pass) {
-				auth_pass = firsttok(&rightside, " \n\t");
-				if(auth_pass  == (char *)NULL) {
-					die("parse_config() -- strdup() failed");
-				}
-
+				while(*rightside == ' ' || *rightside == '\t')
+					rightside++;
+				auth_pass = rightside;
+				while(*rightside != '\0')
+					rightside++;
+				while(isspace(*--rightside))
+					*rightside = '\0';
 				if(log_level > 0) {
 					#if 0
 					log_event(LOG_INFO, "Set AuthPass=\"%s\"\n", auth_pass);
@@ -1613,8 +1616,13 @@ int smtp_open(char *host, int port)
 
 	/* Init SSL stuff */
 	SSL_CTX *ctx;
+	#ifdef HAVE_GNUTLS
 	SSL_METHOD *meth;
 	const X509 *server_cert;
+	#else
+	const SSL_METHOD *meth;
+	X509 *server_cert;
+	#endif
 
 	SSL_load_error_strings();
 	SSLeay_add_ssl_algorithms();

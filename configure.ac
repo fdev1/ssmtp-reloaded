@@ -12,7 +12,8 @@ dnl Checks for libraries.
 
 dnl Checks for header files.
 AC_HEADER_STDC
-AC_CHECK_HEADERS(limits.h strings.h syslog.h unistd.h)
+AC_CHECK_HEADERS(limits.h strings.h syslog.h unistd.h time.h \
+	errno.h paths.h sys/wait.h langinfo.h dirent.h fcntl.h)
 
 
 AC_CACHE_CHECK([for obsolete openlog],ssmtp_cv_obsolete_openlog,
