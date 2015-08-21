@@ -10,7 +10,6 @@
  See COPYRIGHT for the license
 
 */
-#define VERSION "0.9"
 #define _GNU_SOURCE
 
 #include <sys/types.h>
@@ -251,7 +250,7 @@ const char *genmailid(void)
 {
 	int i, j;
 	static char mailid[13];
-	char charset[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+	const char const charset[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 	for(i = 0; i < 12; i++) {
 		j = (int) ((double) rand() / RAND_MAX * (sizeof(charset) - 1));
 		mailid[i] = charset[j];
@@ -1439,13 +1438,16 @@ bool_t read_config()
 				}
 			}
 			else if(strcasecmp(p, "AuthPass") == 0 && !auth_pass) {
-				while(*rightside == ' ' || *rightside == '\t')
+				while(*rightside == ' ' || *rightside == '\t') {
 					rightside++;
+				}
 				auth_pass = rightside;
-				while(*rightside != '\0')
+				while(*rightside != '\0') {
 					rightside++;
-				while(isspace(*--rightside))
+				}
+				while(isspace(*--rightside)) {
 					*rightside = '\0';
+				}
 				if(log_level > 0) {
 					#if 0
 					log_event(LOG_INFO, "Set AuthPass=\"%s\"\n", auth_pass);
@@ -2278,7 +2280,7 @@ queue_process() -- Process queued messages
 void __attribute__((noreturn)) 
 queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 {
-	int pid, fd_pipe[2], fd_lock, r;
+	int pid, fd_pipe[2], fd_lock = -1, r;
 	unsigned long inttmp;
 	bool_t found_some = False;
 
@@ -2541,7 +2543,7 @@ queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 
 		closedir(qdir);
 
-		if(!list_only) {
+		if(!list_only && fd_lock != -1) {
 			close(fd_lock);
 		}
 
@@ -2937,7 +2939,7 @@ parse_options() -- Pull the options out of the command-line
 */
 char **parse_options(int argc, char *argv[])
 {
-	static char Version[] = VERSION;
+	static char Version[] = PACKAGE_VERSION;
 	static char *new_argv[MAXARGS];
 	int i, j, l, add, new_argc; 
 	unsigned long interval = 0;
