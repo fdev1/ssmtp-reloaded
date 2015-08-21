@@ -146,11 +146,7 @@ void log_event(int priority, char *format, ...)
 #endif
 
 #if HAVE_SYSLOG_H
-#if OLDSYSLOG
-	openlog("sSMTP-Reloaded", LOG_PID);
-#else
 	openlog("sSMTP-Reloaded", LOG_PID, LOG_MAIL);
-#endif
 	syslog(priority, "%s", buf);
 	closelog();
 #endif
