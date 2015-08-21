@@ -145,7 +145,7 @@ void log_event(int priority, char *format, ...)
 #endif
 
 #if HAVE_SYSLOG_H
-	openlog("sSMTP-Reloaded", LOG_PID, LOG_MAIL);
+	openlog(PACKAGE_NAME, LOG_PID, LOG_MAIL);
 	syslog(priority, "%s", buf);
 	closelog();
 #endif
@@ -2169,7 +2169,8 @@ int ssmtp(char *argv[])
 	}
 
 	outbytes += smtp_write(sock,
-		"Received: by %s (sSMTP-Reloaded sendmail emulation); %s", hostname, arpadate);
+		"Received: by %s (%s sendmail emulation); %s",
+		hostname, PACKAGE_NAME, arpadate);
 
 	if(have_from == False) {
 		outbytes += smtp_write(sock, "From: %s", from);
@@ -2939,7 +2940,6 @@ parse_options() -- Pull the options out of the command-line
 */
 char **parse_options(int argc, char *argv[])
 {
-	static char Version[] = PACKAGE_VERSION;
 	static char *new_argv[MAXARGS];
 	int i, j, l, add, new_argc; 
 	unsigned long interval = 0;
@@ -2956,7 +2956,7 @@ char **parse_options(int argc, char *argv[])
 	}
 	else if(strcmp(prog, "newaliases") == 0) {
 		/* Someone wanted to rebuild aliases */
-		paq("newaliases: Aliases are not used in sSMTP-Reloaded\n");
+		paq("newaliases: Aliases are not used in %s\n", PACKAGE_NAME);
 	}
 
 	i = 1;
@@ -3037,13 +3037,13 @@ char **parse_options(int argc, char *argv[])
 				switch(argv[i][++j]) {
 
 				case 'a':	/* ARPANET mode */
-						paq("-ba is not supported by sSMTP-Reloaded\n");
+						paq("-ba is not supported by %s\n", PACKAGE_NAME);
 				case 'd':	/* Run as a daemon */
 						daemonize = True;
 						fork = True;
 						break;
 				case 'i':	/* Initialise aliases */
-						paq("%s: Aliases are not used in sSMTP-Reloaded\n", prog);
+						paq("%s: Aliases are not used in %s\n", prog, PACKAGE_NAME);
 				case 'm':	/* Default addr processing */
 						continue;
 
@@ -3051,13 +3051,13 @@ char **parse_options(int argc, char *argv[])
 						queue_process(0, False, True);
 						exit(0);
 				case 's':	/* Read SMTP from stdin */
-						paq("-bs is not supported by sSMTP-Reloaded\n");
+						paq("-bs is not supported by %s\n", PACKAGE_NAME);
 				case 't':	/* Test mode */
-						paq("-bt is meaningless to sSMTP-Reloaded\n");
+						paq("-bt is meaningless to %s\n", PACKAGE_NAME);
 				case 'v':	/* Verify names only */
-						paq("-bv is meaningless to sSMTP-Reloaded\n");
+						paq("-bv is meaningless to %s\n", PACKAGE_NAME);
 				case 'z':	/* Create freeze file */
-						paq("-bz is meaningless to sSMTP-Reloaded\n");
+						paq("-bz is meaningless to %s\n", PACKAGE_NAME);
 				}
 
 			/* Configfile name */
@@ -3170,7 +3170,7 @@ char **parse_options(int argc, char *argv[])
 
 				/* Run newaliases if required */
 				case 'D':
-					paq("%s: Aliases are not used in sSMTP-Reloaded\n", prog);
+					paq("%s: Aliases are not used in %s\n", prog, PACKAGE_NAME);
 
 				/* Deliver now, in background or queue */
 				/* This may warrant a diagnostic for b or q */
@@ -3212,7 +3212,7 @@ char **parse_options(int argc, char *argv[])
 
 				/* Old headers, spaces between adresses */
 				case 'o':
-					paq("-oo is not supported by sSMTP-Reloaded\n");
+					paq("-oo is not supported by %s\n", PACKAGE_NAME);
 
 				/* Queue dir */
 				case 'Q':
@@ -3325,7 +3325,12 @@ char **parse_options(int argc, char *argv[])
 			/* Say version and quit */
 			/* Similar as die, but no logging */
 			case 'V':
-				paq("sSMTP-Reloaded %s (Not sendmail at all)\n", Version);
+				paq(
+					"%s %s (Not sendmail at all)\n"
+					"Report bugs to: %s\n",
+					PACKAGE_NAME,
+					PACKAGE_VERSION,
+					PACKAGE_BUGREPORT);
 			}
 		}
 
@@ -3335,7 +3340,7 @@ char **parse_options(int argc, char *argv[])
 	new_argv[new_argc] = NULL;
 
 	if (daemonize && proc_queue == False) {
-		paq("-bd is only supported by sSMTP-Reloaded when used with -q\n");
+		paq("-bd is only supported by %s when used with -q\n", PACKAGE_NAME);
 	}
 	else if (proc_queue == True) {
 		queue_process(interval, fork, False);

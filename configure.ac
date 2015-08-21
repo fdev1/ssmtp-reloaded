@@ -1,5 +1,5 @@
 dnl Process this file with autoconf to produce a configure script.
-AC_INIT([ssmtp], [0.9.2])
+AC_INIT([sSMTP-Reloaded], [0.9.3], [https://github.com/fernando-rodriguez/ssmtp-reloaded/issues])
 AC_CONFIG_SRCDIR(ssmtp.c)
 
 dnl Checks for programs.
