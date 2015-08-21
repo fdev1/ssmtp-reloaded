@@ -11,8 +11,7 @@ AC_PATH_PROG([GROUPADD], [groupadd])
 dnl Checks for libraries.
 
 dnl Checks for header files.
-AC_CHECK_HEADERS(limits.h strings.h syslog.h unistd.h time.h \
-	errno.h paths.h sys/wait.h langinfo.h dirent.h fcntl.h)
+AC_CHECK_HEADERS(syslog.h)
 
 
 AC_CACHE_CHECK([for obsolete openlog],ssmtp_cv_obsolete_openlog,
@@ -28,7 +27,7 @@ AC_SEARCH_LIBS(gethostname, nsl)
 AC_SEARCH_LIBS(socket, socket)
 
 dnl Checks for library functions.
-AC_CHECK_FUNCS(gethostname socket strdup strndup strstr)
+AC_CHECK_FUNCS(strndup)
 
 dnl Check for optional features
 AC_ARG_ENABLE(logfile, 
