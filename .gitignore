@@ -2,6 +2,7 @@
 ssmtp
 ssmtp.conf
 config.*
+configure
 Makefile
 autom4te.cache/
 ssmtp.service
