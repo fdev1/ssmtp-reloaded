@@ -3551,36 +3551,6 @@ fi
 done
 
 
-
-{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for obsolete openlog" >&5
-$as_echo_n "checking for obsolete openlog... " >&6; }
-if ${ssmtp_cv_obsolete_openlog+:} false; then :
-  $as_echo_n "(cached) " >&6
-else
-   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-#include <syslog.h>
-int
-main ()
-{
- openlog("xx",1);
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_compile "$LINENO"; then :
-  ssmtp_cv_obsolete_openlog=yes
-else
-  ssmtp_cv_obsolete_openlog=no
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
-
-fi
-{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ssmtp_cv_obsolete_openlog" >&5
-$as_echo "$ssmtp_cv_obsolete_openlog" >&6; }
-
-
-
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing gethostname" >&5
 $as_echo_n "checking for library containing gethostname... " >&6; }
 if ${ac_cv_search_gethostname+:} false; then :

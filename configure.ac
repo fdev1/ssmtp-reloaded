@@ -14,15 +14,6 @@ dnl Checks for libraries.
 dnl Checks for header files.
 AC_CHECK_HEADERS(syslog.h)
 
-
-AC_CACHE_CHECK([for obsolete openlog],ssmtp_cv_obsolete_openlog,
-	[ AC_TRY_COMPILE([#include <syslog.h> ] , [ openlog("xx",1); ] , 
-	ssmtp_cv_obsolete_openlog=yes, ssmtp_cv_obsolete_openlog=no)]
-)
-
-
-dnl Checks for typedefs, structures, and compiler characteristics.
-
 dnl Checks for libraries.
 AC_SEARCH_LIBS(gethostname, nsl)
 AC_SEARCH_LIBS(socket, socket)
