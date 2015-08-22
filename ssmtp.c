@@ -2364,8 +2364,10 @@ queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 				continue;
 			}
 			if((f = fopen(dp->d_name, "r")) == NULL) {
-				fprintf(stderr, "%s: Cannot open: '%s/%s'. Skipping\n",
-					prog, queue_dir, dp->d_name);
+				if(!getuid()) {
+					fprintf(stderr, "%s: Cannot open: '%s/%s'. Skipping\n",
+						prog, queue_dir, dp->d_name);
+				}
 				continue;
 			}
 			if(fgets(buf, 7, f) != buf || strcmp(buf, "sSMTP:")) {
