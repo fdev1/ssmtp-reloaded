@@ -1441,7 +1441,7 @@ bool_t read_config()
 				while(*rightside == ' ' || *rightside == '\t') {
 					rightside++;
 				}
-				auth_pass = rightside;
+				auth_pass = strdup(rightside);
 				while(*rightside != '\0') {
 					rightside++;
 				}
