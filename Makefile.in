@@ -1,6 +1,5 @@
 
-
-srcdir= @srcdir@
+srcdir=@srcdir@
 prefix=@prefix@
 exec_prefix=@exec_prefix@
 libexecdir=@libexecdir@
@@ -52,23 +51,21 @@ all: ssmtp
 
 .PHONY: install
 install: ssmtp $(GEN_CONFIG)
-	$(GROUPADD) -f --system ssmtp
 	$(INSTALL) -d -m 755 $(DESTDIR)/$(bindir)
-	$(INSTALL) -m 2711 --group=ssmtp ssmtp $(DESTDIR)/$(bindir)/ssmtp
+	$(INSTALL) -m 711 ssmtp $(DESTDIR)/$(bindir)/ssmtp
 	$(INSTALL) -d -m 755 $(DESTDIR)/$(mandir)/man8
 	$(INSTALL) -d -m 755 $(DESTDIR)/$(mandir)/man5
 	$(INSTALL) -m 644 $(srcdir)/ssmtp.8 $(DESTDIR)/$(mandir)/man8/ssmtp.8
 	$(INSTALL) -m 644 $(srcdir)/ssmtp.conf.5 $(DESTDIR)/$(mandir)/man5/ssmtp.conf.5
 	$(INSTALL) -d -m 755 $(DESTDIR)/$(SSMTPCONFDIR)
 	$(INSTALL) -m 644 $(srcdir)/revaliases $(DESTDIR)/$(INSTALLED_REVALIASES_FILE)
-	$(INSTALL) -d -m 770 --group=ssmtp $(DESTDIR)/$(queuedir)
+	$(INSTALL) -d -m 777 $(DESTDIR)/$(queuedir)
 	$(INSTALL) -d $(DESTDIR)/$(SSMTPCONFDIR)
-	$(INSTALL) -m 640 --group=ssmtp ssmtp.conf $(DESTDIR)/$(CONFIGURATION_FILE)
-	$(INSTALL) -m 640 --group=ssmtp revaliases $(DESTDIR)/$(REVALIASES_FILE)
+	$(INSTALL) -m 640 ssmtp.conf $(DESTDIR)/$(CONFIGURATION_FILE)
+	$(INSTALL) -m 640 revaliases $(DESTDIR)/$(REVALIASES_FILE)
 	$(INSTALL) -d -m 770 $(DESTDIR)/$(prefix)/lib/systemd/user
 	$(INSTALL) -m 644 ssmtp.timer $(DESTDIR)/$(prefix)/lib/systemd/user
 	$(INSTALL) -m 644 ssmtp.service $(DESTDIR)/$(prefix)/lib/systemd/user
-
 
 .PHONY: install-sendmail
 install-sendmail: install
