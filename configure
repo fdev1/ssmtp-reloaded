@@ -3748,7 +3748,7 @@ fi
 if test x$enableval = xyes ; then
 	$as_echo "#define MD5AUTH 1" >>confdefs.h
 
-	SRCS="$SRCS md5auth/md5c.c md5auth/hmac_md5.c"
+	SRCS="$SRCS md5auth/md5.c md5auth/hmac_md5.c"
 fi
 enableval=""
 
