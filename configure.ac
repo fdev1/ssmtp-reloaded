@@ -58,13 +58,17 @@ if test x$enableval = xyes ; then
 fi
 enableval=""
 
-AC_ARG_ENABLE(md5auth,
-[  --enable-md5auth         support for MD5 authentication])
-if test x$enableval = xyes ; then
-	AC_DEFINE(MD5AUTH)
-	SRCS="$SRCS md5auth/md5.c md5auth/hmac_md5.c"
+if test x$enable_ssl = xyes ; then
+	if test x$with_gnutls = xyes ; then
+		AC_SEARCH_LIBS([MD5_Init], [gnutls-openssl], ,
+			SRCS="$SRCS md5.c")
+	else
+		AC_SEARCH_LIBS([MD5_Init], [crypto], ,
+			SRCS="$SRCS md5.c")
+	fi
+else
+	SRCS="$SRCS md5.c"
 fi
-enableval=""
 
 AC_SUBST(SRCS)
 

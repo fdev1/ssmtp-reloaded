@@ -29,7 +29,7 @@ INSTALLED_REVALIASES_FILE=$(REVALIASES_FILE)
 # Programs
 GEN_CONFIG=$(srcdir)/generate_config
 
-SRCS=ssmtp.c arpadate.c base64.c xgethostname.c @SRCS@
+SRCS=ssmtp.c arpadate.c base64.c xgethostname.c hmac_md5.c @SRCS@
 
 OBJS=$(SRCS:.c=.o)
 
@@ -101,7 +101,7 @@ ssmtp: $(OBJS)
 
 .PHONY: clean
 clean:
-	$(RM) ssmtp *.o md5auth/*.o core
+	$(RM) ssmtp *.o
 
 .PHONY: distclean
 distclean: clean docclean
