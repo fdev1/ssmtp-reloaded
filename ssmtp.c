@@ -36,9 +36,7 @@
 #include <openssl/err.h>
 #endif
 #endif
-#ifdef MD5AUTH
-#include "md5auth/hmac_md5.h"
-#endif
+#include "hmac_md5.h"
 #include "ssmtp.h"
 #include <fcntl.h>
 #include "xgethostname.h"
@@ -110,9 +108,7 @@ char **rcptv = (char**) NULL;
 SSL *ssl;
 #endif
 
-#ifdef MD5AUTH
 static char hextab[]="0123456789abcdef";
-#endif
 
 ssize_t outbytes;
 
@@ -858,7 +854,6 @@ void rcpt_free(void)
 	memset(&rcpt_list, 0, sizeof(rcpt_t));
 }
 
-#ifdef MD5AUTH
 int crammd5(char *challengeb64, char *username, char *password, char *responseb64)
 {
 	int i;
@@ -895,7 +890,6 @@ int crammd5(char *challengeb64, char *username, char *password, char *responseb6
 
 	return 1;
 }
-#endif
 
 /*
 rcpt_remap() -- Alias systems-level users to the person who
@@ -1917,9 +1911,7 @@ int ssmtp(char *argv[])
 	char b[(BUF_SZ + 2)], *buf = b+1, *p, *q;
 	char *remote_addr;
 	char *uad_save;
-#ifdef MD5AUTH
 	char challenge[(BUF_SZ + 1)];
-#endif
 	struct passwd *pw;
 	int i, sock;
 	uid_t uid;
@@ -2020,7 +2012,6 @@ int ssmtp(char *argv[])
 				auth_pass = auth_getpass();
 			}
 		}
-#ifdef MD5AUTH
 		if (auth_pass == (char *)NULL) {
 			auth_pass = strdup("");
 		}
@@ -2038,9 +2029,7 @@ int ssmtp(char *argv[])
 			memset(buf, 0, bufsize);
 			crammd5(challenge, auth_user, auth_pass, buf);
 		}
-		else {
-#endif
-		if(auth_method && strcasecmp(auth_method, "login") == 0) {
+		else if(auth_method && strcasecmp(auth_method, "login") == 0) {
 			memset(buf, 0, bufsize);
 			to64frombits(buf, (unsigned char*)auth_user, strlen(auth_user));
 			if (use_oldauth) {
@@ -2091,9 +2080,6 @@ int ssmtp(char *argv[])
 			free(authbuf);
 		}
 
-#ifdef MD5AUTH
-		}
-#endif
 		/* We do NOT want the password output to STDERR
 		 * even base64 encoded.*/
 		minus_v_save = minus_v;
@@ -3018,9 +3004,6 @@ char **parse_options(int argc, char *argv[])
 					}
 					goto exit;
 
-/*
-#ifdef MD5AUTH
-*/
 				case 'm':
 					if(!argv[i][j+1]) { 
 						auth_method = strdup(argv[i+1]);
@@ -3031,9 +3014,6 @@ char **parse_options(int argc, char *argv[])
 					}
 				}
 				goto exit;
-/*
-#endif
-*/
 
 			case 'b':
 				switch(argv[i][++j]) {

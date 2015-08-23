@@ -1,6 +1,5 @@
 #include <string.h>
 #include <sys/types.h>
-#include "global.h"
 #include "md5.h"
 
 /*
@@ -24,9 +23,9 @@ void hmac_md5(unsigned char *text, int text_len, unsigned char *key,
 
                 MD5_CTX      tctx;
 
-                MD5Init(&tctx);
-                MD5Update(&tctx, key, key_len);
-                MD5Final(tk, &tctx);
+                MD5_Init(&tctx);
+                MD5_Update(&tctx, key, key_len);
+                MD5_Final(tk, &tctx);
 
                 key = tk;
                 key_len = 16;
@@ -57,17 +56,17 @@ void hmac_md5(unsigned char *text, int text_len, unsigned char *key,
         /*
          * perform inner MD5
          */
-        MD5Init(&context);                   /* init context for 1st pass */
-        MD5Update(&context, k_ipad, 64);      /* start with inner pad */
-        MD5Update(&context, text, text_len); /* then text of datagram */
-        MD5Final(digest, &context);          /* finish up 1st pass */
+        MD5_Init(&context);                   /* init context for 1st pass */
+        MD5_Update(&context, k_ipad, 64);      /* start with inner pad */
+        MD5_Update(&context, text, text_len); /* then text of datagram */
+        MD5_Final(digest, &context);          /* finish up 1st pass */
         /*
          * perform outer MD5
          */
-        MD5Init(&context);                   /* init context for 2nd
+        MD5_Init(&context);                   /* init context for 2nd
                                               * pass */
-        MD5Update(&context, k_opad, 64);     /* start with outer pad */
-        MD5Update(&context, digest, 16);     /* then results of 1st
+        MD5_Update(&context, k_opad, 64);     /* start with outer pad */
+        MD5_Update(&context, digest, 16);     /* then results of 1st
                                               * hash */
-        MD5Final(digest, &context);          /* finish up 2nd pass */
+        MD5_Final(digest, &context);          /* finish up 2nd pass */
 }
