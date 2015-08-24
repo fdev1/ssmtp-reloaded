@@ -23,8 +23,12 @@
  * See md5.c for more information.
  */
 
-#ifdef HAVE_OPENSSL
+#ifdef HAVE_SSL
+#if HAVE_GNUTLS
+#include <gnutls/openssl.h>
+#else
 #include <openssl/md5.h>
+#endif
 #elif !defined(_MD5_H)
 #define _MD5_H
 
