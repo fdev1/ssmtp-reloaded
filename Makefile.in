@@ -26,9 +26,6 @@ REVALIASES_FILE=$(SSMTPCONFDIR)/revaliases
 INSTALLED_CONFIGURATION_FILE=$(CONFIGURATION_FILE)
 INSTALLED_REVALIASES_FILE=$(REVALIASES_FILE)
 
-# Programs
-GEN_CONFIG=$(srcdir)/generate_config
-
 SRCS=ssmtp.c arpadate.c base64.c xgethostname.c hmac_md5.c @SRCS@
 
 OBJS=$(SRCS:.c=.o)
@@ -50,7 +47,7 @@ all: ssmtp
 	latex $<
 
 .PHONY: install
-install: ssmtp $(GEN_CONFIG)
+install: ssmtp
 	$(INSTALL) -d -m 755 $(DESTDIR)/$(bindir)
 	$(INSTALL) -m 711 ssmtp $(DESTDIR)/$(bindir)/ssmtp
 	$(INSTALL) -d -m 755 $(DESTDIR)/$(mandir)/man8
