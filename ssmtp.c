@@ -900,6 +900,29 @@ rcpt_remap() -- Alias systems-level users to the person who
 char *rcpt_remap(char *str)
 {
 	struct passwd *pw;
+	struct addrinfo *hostinfo = NULL;
+	char *hostname_start, *system_hostname, syshost[NI_MAXHOST];
+
+	/* The mail utility may append the system's hostname,
+	 * so we just strip it */
+	hostname_start = strchr(str, '@');
+	if(hostname_start) {
+		system_hostname = xgethostname();
+		if(system_hostname) {
+			int err = getaddrinfo(system_hostname, NULL, NULL, &hostinfo);
+			if(!err) {
+				err = getnameinfo(hostinfo->ai_addr, hostinfo->ai_addrlen,
+					syshost, NI_MAXHOST, NULL, 0, 0);
+				if(!err) {
+					if(!strcmp(&hostname_start[1], syshost)) {
+						*hostname_start = '\0';
+					}
+				}
+				freeaddrinfo(hostinfo);
+			}
+			free(system_hostname);
+		}
+	}
 	if((root==NULL) || strlen(root)==0 || strchr(str, '@') ||
 		((pw = getpwnam(str)) == NULL) || (pw->pw_uid >= minuserid)) {
 		return(append_domain(str));	/* It's not a local systems-level user */
