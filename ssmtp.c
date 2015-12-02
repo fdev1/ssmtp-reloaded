@@ -2428,7 +2428,9 @@ queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 						free(to);
 						continue;
 					}
-					revaliases(pw);
+					if(user_config == False) {
+						revaliases(pw);
+					}
 					if(!uad) {
 						uad = append_domain(pw->pw_name);
 					}
