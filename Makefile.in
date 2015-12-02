@@ -63,6 +63,9 @@ install: ssmtp
 	$(INSTALL) -d -m 770 $(DESTDIR)/$(prefix)/lib/systemd/user
 	$(INSTALL) -m 644 ssmtp.timer $(DESTDIR)/$(prefix)/lib/systemd/user
 	$(INSTALL) -m 644 ssmtp.service $(DESTDIR)/$(prefix)/lib/systemd/user
+	$(INSTALL) -d -m 770 $(DESTDIR)/$(prefix)/lib/systemd/system
+	$(INSTALL) -m 644 ssmtp.timer $(DESTDIR)/$(prefix)/lib/systemd/system
+	$(INSTALL) -m 644 ssmtp.service $(DESTDIR)/$(prefix)/lib/systemd/system
 
 .PHONY: install-sendmail
 install-sendmail: install
