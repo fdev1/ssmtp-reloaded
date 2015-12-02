@@ -1513,7 +1513,8 @@ char *auth_getpass(void)
 		char *pw_conv;
 		int r;
 		if (dup2(fd_pipe[1], STDOUT_FILENO) == -1) {
-			die("auth_getpass() -- dup2() failed");
+			fprintf(stderr, "%s: child: auth_getpass() -- dup2() failed\n", prog);
+			exit(1);
 		}
 		close(fd_pipe[0]);
 		if (getuid() != geteuid()) {
@@ -1524,10 +1525,12 @@ char *auth_getpass(void)
 		}
 		pw_conv = malloc(strlen(auth_user) + (20 * sizeof(char)));
 		if (pw_conv == (char *)NULL) {
-			die("child: auth_getpass() -- malloc() failed");
+			fprintf(stderr, "%s: child: auth_getpass() -- malloc() failed\n", prog);
+			exit(1);
 		}
 		if(sprintf(pw_conv, "Password 'ssmtp//%s':", auth_user) < 0) {
-			die("child: auth_getpass() -- sprintf() failed");
+			fprintf(stderr, "%s: child: auth_getpass() -- sprintf() failed\n", prog);
+			exit(1);
 		}
 		execv(auth_askpass, (char * const[]){ auth_askpass, pw_conv, NULL });
 		fprintf(stderr, "%s: child: auth_getpass() -- execv() failed\n", prog);
