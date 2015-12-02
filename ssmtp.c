@@ -1530,7 +1530,8 @@ char *auth_getpass(void)
 			die("child: auth_getpass() -- sprintf() failed");
 		}
 		execv(auth_askpass, (char * const[]){ auth_askpass, pw_conv, NULL });
-		die("child: auth_getpass() -- execv() failed");
+		fprintf(stderr, "%s: child: auth_getpass() -- execv() failed\n", prog);
+		exit(1);
 		if(r) {
 			exit(0);
 		}
