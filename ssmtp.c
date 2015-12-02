@@ -44,7 +44,6 @@
 #include <langinfo.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
-#include <paths.h>
 #include <errno.h>
 #include <time.h>
 
@@ -153,29 +152,6 @@ int smtp_read_all(int fd, char *response);
 int smtp_okay(int fd, char *response);
 
 /*
-gettmpdir() -- gets the temp directory
-*/
-const char *gettmpdir(void)
-{
-	char *tmp = NULL;
-	if(getuid() == geteuid() || getgid() == getegid()) {
-		tmp = getenv("TMPDIR");
-	}
-	#if defined(P_tmpdir)
-	if(!tmp) {
-		tmp = P_tmpdir;
-	}
-	#endif
-	if(!tmp) {
-		tmp = _PATH_TMP;
-	}
-	if(!tmp) {
-		tmp = "/tmp";
-	}
-	return tmp;
-}
-
-/*
 dead_letter() -- Save stdin to ~/dead.letter if possible
 */
 void dead_letter(void)
@@ -271,8 +247,7 @@ bool_t queue_message(const char *err)
 		fprintf(stderr, "%s: Message not queued: STDIN is a TTY\n", prog);
 		return False;
 	}
-	temp = gettmpdir();
-	template = malloc(strlen(temp) + (13 * sizeof(char)));
+	template = malloc(strlen(queue_dir) + (19 * sizeof(char)));
 	if(!template) {
 		if(log_level > 0) {
 			log_event(LOG_ERR, "Could not queue message: out of memory");
@@ -280,7 +255,9 @@ bool_t queue_message(const char *err)
 		fprintf(stderr, "%s: Could not queue message: out of memory\n", prog);
 		return False;
 	}
-	strcpy(template, temp);
+	strcpy(template, queue_dir);
+	strcat(template, "/.temp");
+	i = mkdir(template, S_IRWXU | S_IRWXG);
 	strcat(template, "/mail-XXXXXX");
 	if((fd = mkstemp(template)) == -1) {
 		if(log_level > 0) {
