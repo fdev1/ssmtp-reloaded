@@ -3,6 +3,7 @@ Description=sSMTP-Reloaded Timer
 Documentation=man:ssmtp
 
 [Timer]
+OnActiveSec=5min
 OnUnitActiveSec=5min
 Unit=ssmtp.service
 
