@@ -2525,10 +2525,10 @@ queue_process(unsigned long interval, bool_t dofork, bool_t list_only)
 				 * another user impersonate that user */
 				if(getuid() != stats.st_uid) {
 					if(setuid(stats.st_uid) == -1) {
-						log_event(LOG_ERR, "Could not send %s/%s: setuid() failed",
-							queue_dir, dp->d_name);
-						die("Could not send %s/%s: setuid() failed",
-							queue_dir, dp->d_name);
+						log_event(LOG_ERR, "Could not send %s/%s (errno=%i): setuid() failed",
+							queue_dir, dp->d_name, errno);
+						die("Could not send %s/%s (errno=%i): setuid() failed",
+							queue_dir, dp->d_name, errno);
 					}
 				}
 				do_not_queue = True;
