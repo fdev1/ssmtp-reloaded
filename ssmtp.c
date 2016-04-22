@@ -880,6 +880,7 @@ char *rcpt_remap(char *str)
 	struct addrinfo *hostinfo = NULL;
 	char *hostname_start, *system_hostname, syshost[NI_MAXHOST];
 
+
 	/* The mail utility may append the system's hostname,
 	 * so we just strip it */
 	hostname_start = strchr(str, '@');
@@ -1435,12 +1436,16 @@ bool_t read_config()
 				while(*rightside == ' ' || *rightside == '\t') {
 					rightside++;
 				}
-				auth_pass = strdup(rightside);
+				auth_pass = rightside;
 				while(*rightside != '\0') {
 					rightside++;
 				}
 				while(isspace(*--rightside)) {
 					*rightside = '\0';
+				}
+				auth_pass = strdup(auth_pass);
+				if (auth_pass == NULL) {
+					log_event(LOG_ERR, "Out of memory (strdup() failed)");
 				}
 				if(log_level > 0) {
 					#if 0
