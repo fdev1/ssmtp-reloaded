@@ -2068,6 +2068,23 @@ int ssmtp(char *argv[])
 
 			to64frombits(buf, (unsigned char*)auth_pass, strlen(auth_pass));
 		}
+		else if(auth_method && strcasecmp(auth_method, "xoauth2") == 0) {
+			int authbuflen;
+			char *authbuf = malloc(5 + strlen(auth_user) + 1 + 5 + 6 + 1 + strlen(auth_pass) + 2 + 1);
+			if(!authbuf) {
+				die("Out of memory");
+			}
+			outbytes += smtp_write(sock, "AUTH XOAUTH2");
+			alarm((unsigned) MEDWAIT);
+			if(smtp_read(sock, buf) != 3) {
+				comm_error = buf;
+				die("Server didn't accept AUTH XOAUTH2");
+			}
+			memset(buf, 0, bufsize);
+			authbuflen = sprintf(authbuf, "user=%s\1auth=Bearer %s\1\1", auth_user, auth_pass);
+			to64frombits(buf, (unsigned char*)authbuf, authbuflen);
+			free(authbuf);
+		}
 		else {
 			char *authbuf = malloc((strlen(auth_user) * 2) + strlen(auth_pass) + 3);
 			if(!authbuf) {
