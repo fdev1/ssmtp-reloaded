@@ -933,6 +933,7 @@ void header_save(char *str)
 		}
 #endif
 
+		have_from = True;
 #ifdef REWRITE_DOMAIN
 		if(override_from == True) {
 			if(uad != NULL) {
@@ -940,11 +941,7 @@ void header_save(char *str)
 			}
 			uad = from_strip(ht->string);
 		}
-		else {
-			return;
-		}
 #endif
-		have_from = True;
 	}
 #ifdef HASTO_OPTION
 	else if(strncasecmp(ht->string, "To:" ,3) == 0) {
