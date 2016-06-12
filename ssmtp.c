@@ -2073,9 +2073,6 @@ int ssmtp(char *argv[])
 				comm_error = buf;
 				die("Server didn't accept AUTH XOAUTH2");
 			}
-			if(!authbuf) {
-				die("out of memory");
-			}
 			memset(buf, 0, bufsize);
 			authbuflen = sprintf(authbuf, "user=%s\1auth=Bearer %s\1\1", auth_user, auth_pass);
 			to64frombits(buf, (unsigned char*)authbuf, authbuflen);
